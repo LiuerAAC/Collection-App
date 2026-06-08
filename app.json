@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Collection App",
+    "slug": "collection-app",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "collectionapp",
+    "splash": {
+      "backgroundColor": "#F7F4EF"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.liuer.collectionapp"
+    },
+    "android": {
+      "package": "com.liuer.collectionapp",
+      "adaptiveIcon": {
+        "backgroundColor": "#F7F4EF"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

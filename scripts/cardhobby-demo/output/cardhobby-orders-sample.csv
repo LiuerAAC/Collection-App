@@ -1,0 +1,3 @@
+platform,merchant,order_no,title,paid_at,item_amount,shipping_amount,total_amount,source_link,order_status,raw_text
+CardHobby,CardHobby Demo Seller,CH-DEMO-001,Topps Chrome 足球卡合单,2026-06-01,520,18,538,https://www.cardhobby.com.cn/,paid,Topps Chrome 足球卡合单 商品金额 520 邮费 18
+CardHobby,CardHobby Demo Seller,CH-DEMO-002,Panini Prizm 限定卡,2026-06-02,300,12,312,https://www.cardhobby.com.cn/,paid,Panini Prizm 限定卡 商品金额 300 邮费 12
