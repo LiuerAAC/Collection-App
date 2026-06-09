@@ -19,15 +19,24 @@ export function SettingsScreen() {
     moveField,
     addTag,
     updateTag,
-    deleteTag
+    deleteTag,
+    mergeTags
   } = useCollection();
   const [newCategoryName, setNewCategoryName] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState(categories[0]?.id ?? "");
   const [fieldDraft, setFieldDraft] = useState({ name: "", type: "text" as FieldType, options: "", autocomplete: false });
   const [newTagName, setNewTagName] = useState("");
+  const [sourceTagId, setSourceTagId] = useState("");
+  const [targetTagId, setTargetTagId] = useState("");
   const [openSection, setOpenSection] = useState<"categories" | "fields" | "tags" | null>("categories");
   const [expandedFieldId, setExpandedFieldId] = useState<string | null>(null);
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
+
+  const confirmDelete = (message: string, action: () => void) => {
+    if (window.confirm(message)) {
+      action();
+    }
+  };
 
   const scopedFields = useMemo(
     () =>
@@ -65,6 +74,19 @@ export function SettingsScreen() {
     setNewTagName("");
   };
 
+  const submitTagMerge = (event: FormEvent) => {
+    event.preventDefault();
+    if (!sourceTagId || !targetTagId || sourceTagId === targetTagId) return;
+    const source = tags.find((tag) => tag.id === sourceTagId);
+    const target = tags.find((tag) => tag.id === targetTagId);
+    if (!source || !target) return;
+    if (window.confirm(`Combine "${source.name}" into "${target.name}"? This will update all linked items.`)) {
+      mergeTags(sourceTagId, targetTagId);
+      setSourceTagId("");
+      setTargetTagId("");
+    }
+  };
+
   const onFieldDrop = (targetId: string) => {
     if (!draggingFieldId || draggingFieldId === targetId) return;
     const index = scopedFields.findIndex((field) => field.id === targetId);
@@ -79,31 +101,30 @@ export function SettingsScreen() {
   };
 
   return (
-    <Screen title="设置" subtitle="模板、字段和标签都可以在这里调整，修改后会立即应用到仓库。">
-      <Section title="分类模板编辑">
+    <Screen title="Settings" subtitle="Edit categories, fields, and tags in one place.">
+      <Section title="Template editor">
         <div className="settings-stack">
           <div className="accordion">
             <button className="accordion-header" onClick={() => toggleSection("categories")} type="button">
               <div className="accordion-title">
-                <strong>分类管理</strong>
-                <span className="muted">增删改分类，控制仓库中可选的大类。</span>
+                <strong>Categories</strong>
               </div>
-              <span className="muted">{openSection === "categories" ? "收起" : "展开"}</span>
+              <span className="muted">{openSection === "categories" ? "Hide" : "Show"}</span>
             </button>
             {openSection === "categories" ? (
               <div className="accordion-body dense-stack">
                 <form onSubmit={submitCategory}>
                   <div className="toolbar-row">
-                    <Field label="新增分类" value={newCategoryName} onChange={setNewCategoryName} placeholder="例如：足球" />
-                    <Button label="添加" type="submit" />
+                    <Field label="New category" value={newCategoryName} onChange={setNewCategoryName} placeholder="Football" />
+                    <Button className="compact-button" label="Add" type="submit" />
                   </div>
                 </form>
                 {categories.map((category) => (
                   <div className="editable-row" key={category.id}>
                     <input className="inline-input" onChange={(event) => updateCategory(category.id, { name: event.target.value })} value={category.name} />
                     <Row>
-                      <Button label="字段" onClick={() => { setSelectedCategoryId(category.id); setOpenSection("fields"); }} tone={selectedCategoryId === category.id ? "primary" : "quiet"} />
-                      <Button label="删除" onClick={() => deleteCategory(category.id)} tone="danger" />
+                      <Button className="compact-button" label="Fields" onClick={() => { setSelectedCategoryId(category.id); setOpenSection("fields"); }} tone={selectedCategoryId === category.id ? "primary" : "quiet"} />
+                      <Button className="compact-button" label="Delete" onClick={() => confirmDelete("Delete this category and its fields?", () => deleteCategory(category.id))} tone="danger" />
                     </Row>
                   </div>
                 ))}
@@ -114,10 +135,9 @@ export function SettingsScreen() {
           <div className="accordion">
             <button className="accordion-header" onClick={() => toggleSection("fields")} type="button">
               <div className="accordion-title">
-                <strong>字段管理</strong>
-                <span className="muted">字段保持折叠，点击单个字段后展开修改；支持拖动调整顺序。</span>
+                <strong>Fields</strong>
               </div>
-              <span className="muted">{openSection === "fields" ? "收起" : "展开"}</span>
+              <span className="muted">{openSection === "fields" ? "Hide" : "Show"}</span>
             </button>
             {openSection === "fields" ? (
               <div className="accordion-body dense-stack">
@@ -129,9 +149,9 @@ export function SettingsScreen() {
 
                 <form onSubmit={submitField}>
                   <div className="form-grid compact">
-                    <Field label="字段名称" value={fieldDraft.name} onChange={(value) => setFieldDraft((current) => ({ ...current, name: value }))} />
+                    <Field label="Field name" value={fieldDraft.name} onChange={(value) => setFieldDraft((current) => ({ ...current, name: value }))} />
                     <div className="field">
-                      <label>字段类型</label>
+                      <label>Field type</label>
                       <select value={fieldDraft.type} onChange={(event) => setFieldDraft((current) => ({ ...current, type: event.target.value as FieldType }))}>
                         {fieldTypes.map((type) => (
                           <option key={type} value={type}>
@@ -140,14 +160,14 @@ export function SettingsScreen() {
                         ))}
                       </select>
                     </div>
-                    <Field label="选项" value={fieldDraft.options} onChange={(value) => setFieldDraft((current) => ({ ...current, options: value }))} placeholder="Topps, Panini" />
+                    <Field label="Options" value={fieldDraft.options} onChange={(value) => setFieldDraft((current) => ({ ...current, options: value }))} placeholder="Topps, Panini" />
                     <label className="checkbox-field">
                       <input checked={fieldDraft.autocomplete} onChange={(event) => setFieldDraft((current) => ({ ...current, autocomplete: event.target.checked }))} type="checkbox" />
-                      <span>自动补全</span>
+                      <span>Autocomplete</span>
                     </label>
                   </div>
                   <Row>
-                    <Button label="添加字段" type="submit" />
+                    <Button className="compact-button" label="Add field" type="submit" />
                   </Row>
                 </form>
 
@@ -168,9 +188,9 @@ export function SettingsScreen() {
                       {expandedFieldId === field.id ? (
                         <div className="field-editor">
                           <div className="form-grid compact">
-                            <Field label="字段名称" value={field.name} onChange={(value) => updateField(field.id, { name: value })} />
+                            <Field label="Field name" value={field.name} onChange={(value) => updateField(field.id, { name: value })} />
                             <div className="field">
-                              <label>字段类型</label>
+                              <label>Field type</label>
                               <select value={field.type} onChange={(event) => updateField(field.id, { type: event.target.value as FieldType })}>
                                 {fieldTypes.map((type) => (
                                   <option key={type} value={type}>
@@ -180,17 +200,17 @@ export function SettingsScreen() {
                               </select>
                             </div>
                             <Field
-                              label="选项"
+                              label="Options"
                               value={(field.options ?? []).join(", ")}
                               onChange={(value) => updateField(field.id, { options: value.split(",").map((entry) => entry.trim()).filter(Boolean) })}
                             />
                             <label className="checkbox-field">
                               <input checked={Boolean(field.autocomplete)} onChange={(event) => updateField(field.id, { autocomplete: event.target.checked })} type="checkbox" />
-                              <span>自动补全</span>
+                              <span>Autocomplete</span>
                             </label>
                           </div>
                           <Row>
-                            <Button label="删除字段" onClick={() => deleteField(field.id)} tone="danger" />
+                            <Button className="compact-button" label="Delete field" onClick={() => confirmDelete("Delete this field and clear saved values?", () => deleteField(field.id))} tone="danger" />
                           </Row>
                         </div>
                       ) : null}
@@ -204,23 +224,51 @@ export function SettingsScreen() {
           <div className="accordion">
             <button className="accordion-header" onClick={() => toggleSection("tags")} type="button">
               <div className="accordion-title">
-                <strong>全局标签</strong>
-                <span className="muted">标签同样支持增删改，仓库筛选会直接使用这些内容。</span>
+                <strong>Tags</strong>
               </div>
-              <span className="muted">{openSection === "tags" ? "收起" : "展开"}</span>
+              <span className="muted">{openSection === "tags" ? "Hide" : "Show"}</span>
             </button>
             {openSection === "tags" ? (
               <div className="accordion-body dense-stack">
                 <form onSubmit={submitTag}>
                   <div className="toolbar-row">
-                    <Field label="新增标签" value={newTagName} onChange={setNewTagName} placeholder="例如：足球" />
-                    <Button label="添加标签" type="submit" />
+                    <Field label="New tag" value={newTagName} onChange={setNewTagName} placeholder="Football" />
+                    <Button className="compact-button" label="Add tag" type="submit" />
+                  </div>
+                </form>
+                <form onSubmit={submitTagMerge}>
+                  <div className="toolbar-row tag-merge-row">
+                    <div className="field">
+                      <label>Combine tag</label>
+                      <select value={sourceTagId} onChange={(event) => setSourceTagId(event.target.value)}>
+                        <option value="">Select source</option>
+                        {tags.map((tag) => (
+                          <option key={tag.id} value={tag.id}>
+                            {tag.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>Into</label>
+                      <select value={targetTagId} onChange={(event) => setTargetTagId(event.target.value)}>
+                        <option value="">Select target</option>
+                        {tags
+                          .filter((tag) => tag.id !== sourceTagId)
+                          .map((tag) => (
+                            <option key={tag.id} value={tag.id}>
+                              {tag.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                    <Button className="compact-button" label="Combine tag" type="submit" tone="quiet" />
                   </div>
                 </form>
                 {tags.map((tag) => (
                   <div className="editable-row" key={tag.id}>
                     <input className="inline-input" onChange={(event) => updateTag(tag.id, { name: event.target.value })} value={tag.name} />
-                    <Button label="删除" onClick={() => deleteTag(tag.id)} tone="danger" />
+                    <Button className="compact-button" label="Delete" onClick={() => confirmDelete("Delete this tag?", () => deleteTag(tag.id))} tone="danger" />
                   </div>
                 ))}
               </div>

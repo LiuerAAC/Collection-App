@@ -20,10 +20,30 @@ export function Card({ children, className = "" }: PropsWithChildren<{ className
   return <article className={`card ${className}`.trim()}>{children}</article>;
 }
 
-export function Button({ label, onClick, tone = "primary", type = "button" }: { label: string; onClick?: () => void; tone?: "primary" | "quiet" | "danger"; type?: "button" | "submit" }) {
+export function Button({
+  label,
+  onClick,
+  tone = "primary",
+  type = "button",
+  className = ""
+}: {
+  label: string;
+  onClick?: () => void;
+  tone?: "primary" | "quiet" | "danger";
+  type?: "button" | "submit";
+  className?: string;
+}) {
   return (
-    <button className={`button ${tone === "primary" ? "" : tone}`.trim()} onClick={onClick} type={type}>
+    <button className={`button ${tone === "primary" ? "" : tone} ${className}`.trim()} onClick={onClick} type={type}>
       {label}
+    </button>
+  );
+}
+
+export function IconButton({ label, onClick, className = "" }: { label: string; onClick?: () => void; className?: string }) {
+  return (
+    <button aria-label={label} className={`icon-button ${className}`.trim()} onClick={onClick} title={label} type="button">
+      ×
     </button>
   );
 }

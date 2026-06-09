@@ -1,4 +1,4 @@
-import { Album, AlbumSlot, CollectionItem, DigitalAsset, Purchase, SaleRecord } from "../types";
+import { Album, AlbumSlot, ChecklistList, CollectionItem, DigitalAsset, PhotoShot, Purchase, SaleRecord } from "../types";
 
 const now = new Date().toISOString();
 const cardPreview =
@@ -23,21 +23,7 @@ const cardPreview =
     </svg>
   `);
 
-export const seedPurchases: Purchase[] = [
-  {
-    id: "purchase-1",
-    merchant: "CardHobby 卖家 A",
-    platform: "CardHobby",
-    paidAt: "2026-06-01",
-    title: "Topps Chrome 足球卡合单",
-    orderNo: "CH-DEMO-001",
-    itemAmount: 520,
-    shippingAmount: 18,
-    totalAmount: 538,
-    currency: "CNY",
-    notes: "v0.1 示例购买记录，可替换为 CardHobby CSV 导入数据"
-  }
-];
+export const seedPurchases: Purchase[] = [];
 
 export const seedItems: CollectionItem[] = [
   {
@@ -65,9 +51,6 @@ export const seedItems: CollectionItem[] = [
     },
     storageLocation: "白色卡盒 A / 第 1 排",
     price: 132,
-    purchaseAmount: 132,
-    purchaseDate: "2026-06-01",
-    purchaseId: "purchase-1",
     digitalAssetId: "asset-1",
     createdAt: now,
     updatedAt: now
@@ -105,14 +88,56 @@ export const seedDigitalAssets: DigitalAsset[] = [
   }
 ];
 
+export const seedPhotoShots: PhotoShot[] = [
+  {
+    id: "photo-1",
+    imageUrl:
+      "data:image/svg+xml;utf8," +
+      encodeURIComponent(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1300">
+          <defs>
+            <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+              <stop offset="0%" stop-color="#d7e9fb"/>
+              <stop offset="100%" stop-color="#fff5d0"/>
+            </linearGradient>
+          </defs>
+          <rect width="900" height="1300" fill="url(#bg)"/>
+          <rect x="110" y="120" width="680" height="980" rx="44" fill="#b88a53"/>
+          <rect x="155" y="165" width="590" height="890" rx="36" fill="#d7b58d"/>
+          <rect x="205" y="490" width="230" height="360" rx="26" fill="#643ea9"/>
+          <rect x="450" y="560" width="230" height="360" rx="26" fill="#7da9dd"/>
+          <circle cx="530" cy="310" r="72" fill="#f7e6a9"/>
+          <circle cx="300" cy="1030" r="120" fill="rgba(255,255,255,0.88)"/>
+          <text x="452" y="1150" text-anchor="middle" fill="#28496d" font-family="Arial" font-size="54" font-weight="700">Matchday Photo</text>
+        </svg>
+      `),
+    itemIds: ["item-1"],
+    title: "Matchday board",
+    createdAt: now,
+    updatedAt: now
+  }
+];
+
+export const seedChecklists: ChecklistList[] = [];
+
 export const seedAlbums: Album[] = [
   {
     id: "album-1",
     name: "足球卡册",
+    containerType: "album",
     coverColor: "#2F7D6D",
     layoutType: "3x3",
     pageCount: 2,
     doubleSided: true
+  },
+  {
+    id: "album-2",
+    name: "精选滑动展示",
+    containerType: "slider",
+    coverColor: "#4A7DB0",
+    layoutType: "3x3",
+    pageCount: 1,
+    doubleSided: false
   }
 ];
 
@@ -125,6 +150,16 @@ export const seedAlbumSlots: AlbumSlot[] = [
     row: 0,
     column: 0,
     itemId: "item-1",
+    displaySide: "front"
+  },
+  {
+    id: "slot-2",
+    albumId: "album-2",
+    pageIndex: 0,
+    side: "front",
+    row: 0,
+    column: 0,
+    photoId: "photo-1",
     displaySide: "front"
   }
 ];

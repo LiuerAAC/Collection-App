@@ -1,4 +1,5 @@
 export type ItemStatus = "owned" | "in_transit" | "sold" | "traded" | "wanted";
+export type OrderKind = "buy" | "sell";
 
 export type FieldType = "text" | "number" | "money" | "date" | "single" | "multi" | "boolean" | "link";
 
@@ -38,6 +39,32 @@ export type DigitalAsset = {
   status: "missing" | "draft" | "processed";
 };
 
+export type PhotoShot = {
+  id: string;
+  imageUrl: string;
+  itemIds: string[];
+  title?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ChecklistStatus = "in_progress" | "finished";
+
+export type ChecklistEntry = {
+  id: string;
+  text: string;
+  itemIds: string[];
+};
+
+export type ChecklistList = {
+  id: string;
+  seriesName: string;
+  status: ChecklistStatus;
+  entries: ChecklistEntry[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type CollectionItem = {
   id: string;
   name: string;
@@ -60,6 +87,8 @@ export type CollectionItem = {
 
 export type Purchase = {
   id: string;
+  kind: OrderKind;
+  categoryId: string;
   merchant: string;
   platform: string;
   paidAt: string;
@@ -67,6 +96,7 @@ export type Purchase = {
   orderNo?: string;
   itemAmount: number;
   shippingAmount: number;
+  feeAmount: number;
   totalAmount: number;
   currency: string;
   sourceLink?: string;
@@ -89,6 +119,7 @@ export type SaleRecord = {
 export type Album = {
   id: string;
   name: string;
+  containerType: "album" | "slider";
   coverColor: string;
   layoutType: "2x2" | "3x3" | "4x3";
   pageCount: number;
@@ -103,6 +134,7 @@ export type AlbumSlot = {
   row: number;
   column: number;
   itemId?: string;
+  photoId?: string;
   displaySide: "front" | "back";
 };
 
