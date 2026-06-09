@@ -1,58 +1,29 @@
-import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { colors, spacing } from "../theme";
 import { AppTab } from "../types";
 
-const tabs: Array<{ id: AppTab; label: string }> = [
-  { id: "warehouse", label: "仓库" },
-  { id: "gallery", label: "Gallery" },
-  { id: "analytics", label: "分析" },
-  { id: "settings", label: "设置" }
+const tabs: Array<{ id: AppTab; label: string; note: string; icon: string }> = [
+  { id: "warehouse", label: "仓库", note: "Items", icon: "仓" },
+  { id: "gallery", label: "Gallery", note: "Display", icon: "展" },
+  { id: "analytics", label: "分析", note: "Stats", icon: "析" },
+  { id: "settings", label: "设置", note: "System", icon: "设" }
 ];
 
 export function BottomTabs({ activeTab, onChange }: { activeTab: AppTab; onChange: (tab: AppTab) => void }) {
   return (
-    <View style={styles.bar}>
+    <nav className="tab-list" aria-label="Primary">
       {tabs.map((tab) => (
-        <Pressable key={tab.id} onPress={() => onChange(tab.id)} style={styles.tab}>
-          <Text style={[styles.label, activeTab === tab.id && styles.activeLabel]}>{tab.label}</Text>
-          <View style={[styles.indicator, activeTab === tab.id && styles.activeIndicator]} />
-        </Pressable>
+        <button
+          key={tab.id}
+          className={`tab-button ${activeTab === tab.id ? "active" : ""}`.trim()}
+          onClick={() => onChange(tab.id)}
+          type="button"
+        >
+          <span className="tab-icon">{tab.icon}</span>
+          <span className="tab-meta">
+            <span>{tab.label}</span>
+            <span className="muted">{tab.note}</span>
+          </span>
+        </button>
       ))}
-    </View>
+    </nav>
   );
 }
-
-const styles = StyleSheet.create({
-  bar: {
-    backgroundColor: colors.surface,
-    borderTopColor: colors.border,
-    borderTopWidth: 1,
-    flexDirection: "row",
-    paddingBottom: spacing.md,
-    paddingTop: spacing.sm
-  },
-  tab: {
-    alignItems: "center",
-    flex: 1,
-    gap: spacing.xs
-  },
-  label: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "700"
-  },
-  activeLabel: {
-    color: colors.accent
-  },
-  indicator: {
-    backgroundColor: "transparent",
-    borderRadius: 3,
-    height: 3,
-    width: 24
-  },
-  activeIndicator: {
-    backgroundColor: colors.accent
-  }
-});
-

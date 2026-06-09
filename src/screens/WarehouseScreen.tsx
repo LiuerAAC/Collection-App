@@ -1,9 +1,9 @@
-import React, { useMemo, useState } from "react";
-import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
-import { Button, Card, Chip, Field, Screen, Section } from "../components/ui";
-import { colors, spacing } from "../theme";
-import { DraftItem, ItemStatus } from "../types";
+import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react";
+import { Button, Card, Chip, EmptyState, Field, Row, Screen, Section, Stack } from "../components/ui";
 import { useCollection } from "../store/collectionStore";
+import { CollectionItem, CustomField, DraftItem, DraftPurchase, ItemStatus } from "../types";
+
+type WarehouseView = "library" | "create" | "orders";
 
 const statusLabels: Record<ItemStatus, string> = {
   owned: "已拥有",
@@ -20,209 +20,525 @@ const emptyDraft: DraftItem = {
   description: "",
   imageUrl: "",
   storageLocation: "",
-  tagIds: [],
-  customValues: {}
+  tagIds: ["tag-football"],
+  customValues: {},
+  price: undefined,
+  purchaseDate: "",
+  purchaseAmount: undefined
 };
 
+const emptyOrderDraft: DraftPurchase = {
+  merchant: "",
+  platform: "CardHobby",
+  paidAt: "",
+  title: "",
+  orderNo: "",
+  itemAmount: 0,
+  shippingAmount: 0,
+  currency: "CNY",
+  sourceLink: "",
+  notes: ""
+};
+
+function toDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("file read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildItemName(categoryName: string, values: DraftItem["customValues"]) {
+  const player = String(values["field-card-player"] ?? "").trim();
+  const series = String(values["field-card-series"] ?? "").trim();
+  const special = String(values["field-card-special"] ?? "").trim();
+  const parts = [player, series, special].filter(Boolean);
+  return parts.length > 0 ? parts.join(" ") : `${categoryName}藏品`;
+}
+
 export function WarehouseScreen() {
-  const { categories, fields, tags, items, purchases, saleRecords, addItem, addPurchase, addSaleRecord } = useCollection();
-  const [query, setQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState("all");
+  const {
+    categories,
+    fields,
+    tags,
+    items,
+    purchases,
+    addItem,
+    updateItem,
+    deleteItem,
+    addPurchase,
+    linkPurchaseToItem,
+    updatePurchase,
+    deletePurchase
+  } = useCollection();
+  const [view, setView] = useState<WarehouseView>("library");
   const [draft, setDraft] = useState<DraftItem>(emptyDraft);
-  const [selectedItemId, setSelectedItemId] = useState(items[0]?.id);
-  const selectedItem = items.find((item) => item.id === selectedItemId) ?? items[0];
+  const [selectedCategoryId, setSelectedCategoryId] = useState("cat-card");
+  const [activeCategoryFilter, setActiveCategoryFilter] = useState("all");
+  const [activeTagFilter, setActiveTagFilter] = useState("all");
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Partial<CollectionItem>>({});
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [showOrderBind, setShowOrderBind] = useState(false);
+  const [orderDraft, setOrderDraft] = useState<DraftPurchase>(emptyOrderDraft);
+  const [editingOrder, setEditingOrder] = useState(false);
+  const addImageInputRef = useRef<HTMLInputElement | null>(null);
+  const editImageInputRef = useRef<HTMLInputElement | null>(null);
 
-  const visibleItems = useMemo(() => {
-    return items.filter((item) => {
-      const categoryMatch = activeCategory === "all" || item.categoryId === activeCategory;
-      const queryMatch = !query || item.name.toLowerCase().includes(query.toLowerCase());
-      return categoryMatch && queryMatch;
+  const currentCategoryId = draft.categoryId || selectedCategoryId;
+  const currentCategory = categories.find((category) => category.id === currentCategoryId) ?? categories[0];
+  const visibleFields = fields
+    .filter((field) => field.categoryId === currentCategoryId)
+    .sort((left, right) => left.sortOrder - right.sortOrder);
+
+  const filteredItems = useMemo(
+    () =>
+      items.filter((item) => {
+        const categoryMatch = activeCategoryFilter === "all" || item.categoryId === activeCategoryFilter;
+        const tagMatch = activeTagFilter === "all" || item.tagIds.includes(activeTagFilter);
+        return categoryMatch && tagMatch;
+      }),
+    [activeCategoryFilter, activeTagFilter, items]
+  );
+
+  const selectedItem = items.find((item) => item.id === selectedItemId) ?? null;
+  const selectedOrder = purchases.find((purchase) => purchase.id === selectedOrderId) ?? null;
+  const selectedOrderItems = items.filter((item) => item.purchaseId === selectedOrder?.id);
+  const unboundItems = items.filter((item) => item.purchaseId !== selectedOrder?.id);
+
+  const suggestionValues = (field: CustomField) => {
+    const values = items
+      .map((item) => item.customValues[field.id])
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+    return Array.from(new Set(values));
+  };
+
+  const onAddImage = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const imageUrl = await toDataUrl(file);
+    setDraft((current) => ({ ...current, imageUrl }));
+  };
+
+  const onEditImage = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !editingItemId) return;
+    const imageUrl = await toDataUrl(file);
+    setEditDraft((current) => ({ ...current, imageUrl }));
+  };
+
+  const submitItem = (event: FormEvent) => {
+    event.preventDefault();
+    const name = buildItemName(currentCategory?.name ?? "藏品", draft.customValues);
+    addItem({
+      ...draft,
+      categoryId: currentCategoryId,
+      name
     });
-  }, [activeCategory, items, query]);
+    setDraft({ ...emptyDraft, categoryId: currentCategoryId });
+  };
 
-  const selectedFields = fields.filter((field) => field.categoryId === draft.categoryId).sort((a, b) => a.sortOrder - b.sortOrder);
+  const startEditItem = (item: CollectionItem) => {
+    setEditingItemId(item.id);
+    setEditDraft(item);
+  };
 
-  const saveItem = () => {
-    if (!draft.name.trim()) {
-      return;
+  const submitEditItem = (event: FormEvent) => {
+    event.preventDefault();
+    if (!editingItemId) return;
+    updateItem(editingItemId, {
+      ...editDraft,
+      name: buildItemName(
+        categories.find((category) => category.id === (editDraft.categoryId ?? selectedItem?.categoryId))?.name ?? "藏品",
+        (editDraft.customValues as CollectionItem["customValues"]) ?? {}
+      )
+    });
+    setEditingItemId(null);
+    setEditDraft({});
+  };
+
+  const createOrder = (event: FormEvent) => {
+    event.preventDefault();
+    addPurchase(orderDraft);
+    setOrderDraft(emptyOrderDraft);
+  };
+
+  const openOrderDetail = (orderId: string) => {
+    const purchase = purchases.find((entry) => entry.id === orderId);
+    if (!purchase) return;
+    setSelectedOrderId(orderId);
+    setOrderDraft({
+      merchant: purchase.merchant,
+      platform: purchase.platform,
+      paidAt: purchase.paidAt,
+      title: purchase.title,
+      orderNo: purchase.orderNo ?? "",
+      itemAmount: purchase.itemAmount,
+      shippingAmount: purchase.shippingAmount,
+      currency: purchase.currency,
+      sourceLink: purchase.sourceLink ?? "",
+      notes: purchase.notes ?? ""
+    });
+    setEditingOrder(false);
+    setShowOrderBind(false);
+  };
+
+  const renderFieldInput = (
+    field: CustomField,
+    values: DraftItem["customValues"] | CollectionItem["customValues"],
+    setValues: (next: CollectionItem["customValues"]) => void
+  ) => {
+    const value = values[field.id];
+    const datalistId = `${field.id}-list`;
+    const suggestions = field.autocomplete ? suggestionValues(field) : [];
+    const isSerialNumber = field.id === "field-card-serial-number";
+    const serialEnabled = Boolean(values["field-card-serial-enabled"]);
+    if (isSerialNumber && !serialEnabled) {
+      return null;
     }
 
-    const id = addItem(draft);
-    setSelectedItemId(id);
-    setDraft(emptyDraft);
-  };
+    if (field.type === "boolean") {
+      return (
+        <label className="checkbox-field" key={field.id}>
+          <input
+            checked={Boolean(value)}
+            onChange={(event) => setValues({ ...values, [field.id]: event.target.checked })}
+            type="checkbox"
+          />
+          <span>{field.name}</span>
+        </label>
+      );
+    }
 
-  const createDemoPurchase = () => {
-    if (!selectedItem) return;
-    addPurchase({
-      merchant: "CardHobby Demo",
-      platform: "CardHobby",
-      paidAt: new Date().toISOString().slice(0, 10),
-      title: `${selectedItem.name} 购买记录`,
-      itemAmount: 100,
-      shippingAmount: 12,
-      currency: "CNY",
-      sourceLink: "",
-      notes: "v0.1 快速创建"
-    }, [selectedItem.id]);
-  };
+    if (field.type === "single") {
+      return (
+        <div className="field" key={field.id}>
+          <label>{field.name}</label>
+          <select
+            value={String(value ?? "")}
+            onChange={(event) => setValues({ ...values, [field.id]: event.target.value })}
+          >
+            <option value="">请选择</option>
+            {(field.options ?? []).map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </div>
+      );
+    }
 
-  const createDemoSale = () => {
-    if (!selectedItem) return;
-    addSaleRecord({
-      itemId: selectedItem.id,
-      platform: "线下",
-      soldAt: new Date().toISOString().slice(0, 10),
-      buyer: "",
-      saleAmount: 120,
-      shippingAmount: 0,
-      currency: "CNY",
-      notes: "v0.1 快速创建"
-    });
+    return (
+      <div className="field" key={field.id}>
+        <label>{field.name}</label>
+        <input
+          list={suggestions.length > 0 ? datalistId : undefined}
+          onChange={(event) => setValues({ ...values, [field.id]: event.target.value })}
+          placeholder={field.name}
+          value={String(value ?? "")}
+        />
+        {suggestions.length > 0 ? (
+          <datalist id={datalistId}>
+            {suggestions.map((option) => (
+              <option key={option} value={option} />
+            ))}
+          </datalist>
+        ) : null}
+      </div>
+    );
   };
 
   return (
-    <Screen>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <Section title="仓库">
-          <Field label="搜索" value={query} onChangeText={setQuery} placeholder="搜索藏品名称" />
-          <View style={styles.rowWrap}>
-            <Chip label="全部" active={activeCategory === "all"} onPress={() => setActiveCategory("all")} />
-            {categories.map((category) => (
-              <Chip key={category.id} label={category.name} active={activeCategory === category.id} onPress={() => setActiveCategory(category.id)} />
-            ))}
-          </View>
-          {visibleItems.map((item) => {
-            const category = categories.find((entry) => entry.id === item.categoryId);
-            const purchase = purchases.find((entry) => entry.id === item.purchaseId);
-            const sale = saleRecords.find((entry) => entry.id === item.saleRecordId);
-            return (
-              <Card key={item.id}>
-                <View style={styles.itemRow}>
-                  <View style={styles.thumb}>
-                    {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.image} /> : <Text style={styles.thumbText}>图</Text>}
-                  </View>
-                  <View style={styles.itemBody}>
-                    <Text style={styles.itemTitle}>{item.name}</Text>
-                    <Text style={styles.meta}>{category?.name} · {statusLabels[item.status]}</Text>
-                    <Text style={styles.meta}>位置：{item.storageLocation || "未记录"}</Text>
-                    <Text style={styles.meta}>购买：{purchase ? `${purchase.totalAmount} ${purchase.currency}` : "未关联"}</Text>
-                    <Text style={styles.meta}>售出：{sale ? `${sale.totalAmount} ${sale.currency}` : "未关联"}</Text>
-                    <View style={styles.rowWrap}>
-                      {item.tagIds.map((tagId) => {
-                        const tag = tags.find((entry) => entry.id === tagId);
-                        return tag ? <Chip key={tag.id} label={tag.name} /> : null;
-                      })}
-                    </View>
-                    <Button label="选中" onPress={() => setSelectedItemId(item.id)} tone="quiet" />
-                  </View>
-                </View>
-              </Card>
-            );
-          })}
-        </Section>
+    <Screen title="仓库" subtitle="仓库页已经拆成默认仓库、新增藏品、订单管理三个工作流。">
+      <Section title="仓库导航">
+        <Row wrap>
+          <Chip label="默认仓库" active={view === "library"} onClick={() => setView("library")} />
+          <Chip label="新增藏品" active={view === "create"} onClick={() => setView("create")} />
+          <Chip label="订单管理" active={view === "orders"} onClick={() => setView("orders")} />
+        </Row>
+      </Section>
 
-        <Section title="新增藏品">
+      {view === "library" ? (
+        <Section title="默认仓库" copy="这里先只显示图片。按分类或标签筛选，点击藏品进入详情。">
           <Card>
-            <Field label="名称" value={draft.name} onChangeText={(name) => setDraft({ ...draft, name })} placeholder="例如：梅西 Topps Chrome" />
-            <Text style={styles.label}>大类</Text>
-            <View style={styles.rowWrap}>
-              {categories.map((category) => (
-                <Chip key={category.id} label={category.name} active={draft.categoryId === category.id} onPress={() => setDraft({ ...draft, categoryId: category.id, customValues: {} })} />
-              ))}
-            </View>
-            <Field label="图片 URL" value={draft.imageUrl} onChangeText={(imageUrl) => setDraft({ ...draft, imageUrl })} placeholder="v0.1 先用图片链接占位" />
-            <Field label="实体存放位置" value={draft.storageLocation} onChangeText={(storageLocation) => setDraft({ ...draft, storageLocation })} placeholder="例如：白色卡盒 A / 第 1 排" />
-            <Text style={styles.label}>标签</Text>
-            <View style={styles.rowWrap}>
-              {tags.map((tag) => (
-                <Chip
-                  key={tag.id}
-                  label={tag.name}
-                  active={draft.tagIds.includes(tag.id)}
-                  onPress={() => setDraft({
-                    ...draft,
-                    tagIds: draft.tagIds.includes(tag.id) ? draft.tagIds.filter((id) => id !== tag.id) : [...draft.tagIds, tag.id]
-                  })}
-                />
-              ))}
-            </View>
-            {selectedFields.slice(0, 6).map((field) => (
-              <Field
-                key={field.id}
-                label={field.name}
-                value={String(draft.customValues[field.id] ?? "")}
-                onChangeText={(value) => setDraft({ ...draft, customValues: { ...draft.customValues, [field.id]: value } })}
-                placeholder={field.options?.join(" / ") || field.name}
-              />
+            <Stack>
+              <Row wrap>
+                <Chip label="全部分类" active={activeCategoryFilter === "all"} onClick={() => setActiveCategoryFilter("all")} />
+                {categories.map((category) => (
+                  <Chip key={category.id} label={category.name} active={activeCategoryFilter === category.id} onClick={() => setActiveCategoryFilter(category.id)} />
+                ))}
+              </Row>
+              <Row wrap>
+                <Chip label="全部标签" active={activeTagFilter === "all"} onClick={() => setActiveTagFilter("all")} />
+                {tags.map((tag) => (
+                  <Chip key={tag.id} label={tag.name} active={activeTagFilter === tag.id} onClick={() => setActiveTagFilter(tag.id)} />
+                ))}
+              </Row>
+            </Stack>
+          </Card>
+
+          <div className="image-grid">
+            {filteredItems.map((item) => (
+              <button className="image-tile" key={item.id} onClick={() => setSelectedItemId(item.id)} type="button">
+                {item.imageUrl ? <img alt={item.name} src={item.imageUrl} /> : <div className="image-tile-placeholder">{item.name}</div>}
+              </button>
             ))}
-            <Button label="保存藏品" onPress={saveItem} />
+          </div>
+
+          {selectedItem ? (
+            <div className="modal-backdrop" onClick={() => { setSelectedItemId(null); setEditingItemId(null); }}>
+              <div className="modal-panel" onClick={(event) => event.stopPropagation()}>
+                <Row between>
+                  <strong>{selectedItem.name}</strong>
+                  <Button label="关闭" onClick={() => { setSelectedItemId(null); setEditingItemId(null); }} tone="quiet" />
+                </Row>
+
+                {editingItemId === selectedItem.id ? (
+                  <form onSubmit={submitEditItem}>
+                    <div className="detail-layout">
+                      <div className="detail-image">
+                        {String(editDraft.imageUrl ?? selectedItem.imageUrl ?? "").trim() ? (
+                          <img alt={selectedItem.name} src={String(editDraft.imageUrl ?? selectedItem.imageUrl)} />
+                        ) : (
+                          <div className="image-tile-placeholder">暂无图片</div>
+                        )}
+                      </div>
+                      <Stack>
+                        <Row>
+                          <Button label="选择图库/拍照" onClick={() => editImageInputRef.current?.click()} tone="quiet" />
+                          <input accept="image/*" capture="environment" hidden onChange={onEditImage} ref={editImageInputRef} type="file" />
+                        </Row>
+                        <Field label="实体存放位置" value={String(editDraft.storageLocation ?? "")} onChange={(value) => setEditDraft((current) => ({ ...current, storageLocation: value }))} />
+                        <Field label="卡价" type="number" value={String(editDraft.price ?? "")} onChange={(value) => setEditDraft((current) => ({ ...current, price: value ? Number(value) : undefined }))} />
+                        <Field label="购买时间" type="date" value={String(editDraft.purchaseDate ?? "")} onChange={(value) => setEditDraft((current) => ({ ...current, purchaseDate: value }))} />
+                        <Field label="购买金额" type="number" value={String(editDraft.purchaseAmount ?? "")} onChange={(value) => setEditDraft((current) => ({ ...current, purchaseAmount: value ? Number(value) : undefined }))} />
+                      </Stack>
+                    </div>
+                    <div className="form-grid">
+                      {fields
+                        .filter((field) => field.categoryId === selectedItem.categoryId)
+                        .sort((left, right) => left.sortOrder - right.sortOrder)
+                        .map((field) =>
+                          renderFieldInput(
+                            field,
+                            (editDraft.customValues as CollectionItem["customValues"]) ?? selectedItem.customValues,
+                            (next) => setEditDraft((current) => ({ ...current, customValues: next }))
+                          )
+                        )}
+                    </div>
+                    <Row>
+                      <Button label="保存修改" type="submit" />
+                      <Button
+                        label="删除藏品"
+                        tone="danger"
+                        onClick={() => {
+                          deleteItem(selectedItem.id);
+                          setSelectedItemId(null);
+                          setEditingItemId(null);
+                        }}
+                      />
+                    </Row>
+                  </form>
+                ) : (
+                  <Stack>
+                    <div className="detail-layout">
+                      <div className="detail-image">
+                        {selectedItem.imageUrl ? <img alt={selectedItem.name} src={selectedItem.imageUrl} /> : <div className="image-tile-placeholder">暂无图片</div>}
+                      </div>
+                      <Stack>
+                        <span className="muted">状态：{statusLabels[selectedItem.status]}</span>
+                        <span className="muted">位置：{selectedItem.storageLocation || "未记录"}</span>
+                        <span className="muted">卡价：{selectedItem.price ? `¥${selectedItem.price}` : "未记录"}</span>
+                        <span className="muted">购买时间：{selectedItem.purchaseDate || "未记录"}</span>
+                        <span className="muted">购买金额：{selectedItem.purchaseAmount ? `¥${selectedItem.purchaseAmount}` : "未记录"}</span>
+                        {fields
+                          .filter((field) => field.categoryId === selectedItem.categoryId)
+                          .sort((left, right) => left.sortOrder - right.sortOrder)
+                          .map((field) => (
+                            <span className="muted" key={field.id}>
+                              {field.name}：{String(selectedItem.customValues[field.id] ?? "未填写")}
+                            </span>
+                          ))}
+                      </Stack>
+                    </div>
+                    <Row>
+                      <Button label="修改" onClick={() => startEditItem(selectedItem)} />
+                      <Button
+                        label="删除"
+                        tone="danger"
+                        onClick={() => {
+                          deleteItem(selectedItem.id);
+                          setSelectedItemId(null);
+                        }}
+                      />
+                    </Row>
+                  </Stack>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </Section>
+      ) : null}
+
+      {view === "create" ? (
+        <Section title="新增藏品" copy="先选类别，再出现对应信息填写。卡牌公司为待选项，系列、球员名称、队伍支持高频自动补全。">
+          <Card>
+            <form onSubmit={submitItem}>
+              <Stack>
+                <Row wrap>
+                  {categories.map((category) => (
+                    <Chip
+                      key={category.id}
+                      label={category.name}
+                      active={currentCategoryId === category.id}
+                      onClick={() => {
+                        setSelectedCategoryId(category.id);
+                        setDraft((current) => ({ ...current, categoryId: category.id, customValues: {}, tagIds: category.name === "卡牌" ? ["tag-football"] : [] }));
+                      }}
+                    />
+                  ))}
+                </Row>
+
+                <div className="integrated-form">
+                  <div className="detail-image uploader-tile">
+                    {draft.imageUrl ? <img alt="藏品预览" src={draft.imageUrl} /> : <div className="image-tile-placeholder">添加图片</div>}
+                    <Button label="选择图库/拍照" onClick={() => addImageInputRef.current?.click()} tone="quiet" />
+                    <input accept="image/*" capture="environment" hidden onChange={onAddImage} ref={addImageInputRef} type="file" />
+                  </div>
+
+                  <div className="form-grid">
+                    <Field label="实体存放位置" value={draft.storageLocation ?? ""} onChange={(value) => setDraft((current) => ({ ...current, storageLocation: value }))} placeholder="例如：卡盒 A / 第 1 排" />
+                    <Field label="卡价" type="number" value={String(draft.price ?? "")} onChange={(value) => setDraft((current) => ({ ...current, price: value ? Number(value) : undefined }))} placeholder="例如：132" />
+                    {visibleFields.map((field) =>
+                      renderFieldInput(field, draft.customValues, (next) => setDraft((current) => ({ ...current, customValues: next })))
+                    )}
+                  </div>
+                </div>
+
+                <Row>
+                  <Button label="添加" type="submit" />
+                </Row>
+              </Stack>
+            </form>
           </Card>
         </Section>
+      ) : null}
 
-        <Section title="选中藏品快捷记录">
-          <Card>
-            <Text style={styles.itemTitle}>{selectedItem?.name || "暂无藏品"}</Text>
-            <Text style={styles.meta}>v0.1 先提供快捷创建，后续拆成完整表单。</Text>
-            <View style={styles.actionRow}>
-              <Button label="添加购买记录" onPress={createDemoPurchase} tone="quiet" />
-              <Button label="添加售出记录" onPress={createDemoSale} tone="danger" />
-            </View>
-          </Card>
+      {view === "orders" ? (
+        <Section title="订单管理" copy="保留现在的订单列表布局；点击订单后弹出详情页，在详情页里完成查看、修改、删除和绑定藏品。">
+          <Row>
+            <Button label="新增订单" onClick={() => { setSelectedOrderId("new"); setOrderDraft(emptyOrderDraft); setEditingOrder(true); setShowOrderBind(false); }} />
+          </Row>
+
+          <div className="split-layout">
+            <Card>
+              <Stack>
+                <strong>订单列表</strong>
+                {purchases.map((purchase) => (
+                  <button className={`list-row ${selectedOrder?.id === purchase.id ? "active" : ""}`.trim()} key={purchase.id} onClick={() => openOrderDetail(purchase.id)} type="button">
+                    <span>{purchase.title || purchase.orderNo || "未命名订单"}</span>
+                    <span className="muted">¥{purchase.totalAmount}</span>
+                  </button>
+                ))}
+              </Stack>
+            </Card>
+
+            <Card>
+              <EmptyState title="点击订单查看详情" copy="订单详情会以弹层形式打开，避免打乱当前列表浏览节奏。" />
+            </Card>
+          </div>
+
+          {selectedOrderId ? (
+            <div className="modal-backdrop" onClick={() => { setSelectedOrderId(null); setShowOrderBind(false); }}>
+              <div className="modal-panel" onClick={(event) => event.stopPropagation()}>
+                <Row between>
+                  <strong>{selectedOrderId === "new" ? "新增订单" : "订单详情"}</strong>
+                  <Button label="关闭" onClick={() => { setSelectedOrderId(null); setShowOrderBind(false); }} tone="quiet" />
+                </Row>
+
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (selectedOrderId === "new") {
+                      createOrder(event);
+                      setSelectedOrderId(null);
+                      return;
+                    }
+                    updatePurchase(selectedOrderId, orderDraft);
+                    setEditingOrder(false);
+                  }}
+                >
+                  <div className="form-grid">
+                    <Field label="订单标题" value={orderDraft.title} onChange={(value) => setOrderDraft((current) => ({ ...current, title: value }))} />
+                    <Field label="商家" value={orderDraft.merchant} onChange={(value) => setOrderDraft((current) => ({ ...current, merchant: value }))} />
+                    <Field label="平台" value={orderDraft.platform} onChange={(value) => setOrderDraft((current) => ({ ...current, platform: value }))} />
+                    <Field label="订单号" value={orderDraft.orderNo ?? ""} onChange={(value) => setOrderDraft((current) => ({ ...current, orderNo: value }))} />
+                    <Field label="付款日期" type="date" value={orderDraft.paidAt} onChange={(value) => setOrderDraft((current) => ({ ...current, paidAt: value }))} />
+                    <Field label="商品金额" type="number" value={String(orderDraft.itemAmount || "")} onChange={(value) => setOrderDraft((current) => ({ ...current, itemAmount: value ? Number(value) : 0 }))} />
+                    <Field label="邮费" type="number" value={String(orderDraft.shippingAmount || "")} onChange={(value) => setOrderDraft((current) => ({ ...current, shippingAmount: value ? Number(value) : 0 }))} />
+                    <Field label="链接" value={orderDraft.sourceLink ?? ""} onChange={(value) => setOrderDraft((current) => ({ ...current, sourceLink: value }))} />
+                  </div>
+                  <Field label="备注" value={orderDraft.notes ?? ""} onChange={(value) => setOrderDraft((current) => ({ ...current, notes: value }))} textarea />
+
+                  {selectedOrder && selectedOrderId !== "new" ? (
+                    <>
+                      <Section title="已关联藏品">
+                        {selectedOrderItems.length > 0 ? (
+                          <div className="compact-list">
+                            {selectedOrderItems.map((item) => (
+                              <div className="list-row static" key={item.id}>
+                                <span>{item.name}</span>
+                                <span className="muted">{item.purchaseAmount ? `¥${item.purchaseAmount}` : "未同步金额"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <EmptyState title="尚未关联藏品" copy="点击下面的按钮，为订单绑定一个或多个藏品。" />
+                        )}
+                      </Section>
+
+                      <Row>
+                        <Button label={showOrderBind ? "收起关联" : "关联藏品"} onClick={() => setShowOrderBind((value) => !value)} tone="quiet" />
+                      </Row>
+
+                      {showOrderBind ? (
+                        <Section title="选择藏品进行关联">
+                          <div className="compact-list">
+                            {unboundItems.map((item) => (
+                              <button className="list-row" key={item.id} onClick={() => linkPurchaseToItem(selectedOrder.id, item.id)} type="button">
+                                <span>{item.name}</span>
+                                <span className="muted">点击关联</span>
+                              </button>
+                            ))}
+                          </div>
+                        </Section>
+                      ) : null}
+                    </>
+                  ) : null}
+
+                  <Row>
+                    <Button label={selectedOrderId === "new" ? "新增订单" : "保存订单"} type="submit" />
+                    {selectedOrderId !== "new" && selectedOrder ? (
+                      <Button
+                        label="删除订单"
+                        tone="danger"
+                        onClick={() => {
+                          deletePurchase(selectedOrder.id);
+                          setSelectedOrderId(null);
+                          setShowOrderBind(false);
+                        }}
+                      />
+                    ) : null}
+                  </Row>
+                </form>
+              </div>
+            </div>
+          ) : null}
         </Section>
-      </ScrollView>
+      ) : null}
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  rowWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap"
-  },
-  itemRow: {
-    flexDirection: "row",
-    gap: spacing.md
-  },
-  thumb: {
-    alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 8,
-    height: 96,
-    justifyContent: "center",
-    overflow: "hidden",
-    width: 72
-  },
-  image: {
-    height: "100%",
-    width: "100%"
-  },
-  thumbText: {
-    color: colors.muted,
-    fontWeight: "700"
-  },
-  itemBody: {
-    flex: 1,
-    gap: spacing.xs
-  },
-  itemTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "800"
-  },
-  meta: {
-    color: colors.muted,
-    fontSize: 13
-  },
-  label: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-    marginBottom: spacing.xs
-  },
-  actionRow: {
-    gap: spacing.sm,
-    marginTop: spacing.md
-  }
-});
-

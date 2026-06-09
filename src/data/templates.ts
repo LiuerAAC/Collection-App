@@ -16,17 +16,18 @@ export const defaultTags: Tag[] = [
 
 export const cardFieldTemplate: CustomField[] = [
   { id: "field-card-company", categoryId: "cat-card", name: "卡牌公司", type: "single", options: ["Topps", "Panini", "Futera", "Leaf"], sortOrder: 1 },
-  { id: "field-card-series", categoryId: "cat-card", name: "系列", type: "text", sortOrder: 2 },
+  { id: "field-card-series", categoryId: "cat-card", name: "系列", type: "text", sortOrder: 2, autocomplete: true },
   { id: "field-card-year", categoryId: "cat-card", name: "年份", type: "text", sortOrder: 3 },
-  { id: "field-card-player", categoryId: "cat-card", name: "球员名称", type: "text", required: true, sortOrder: 4 },
-  { id: "field-card-club", categoryId: "cat-card", name: "俱乐部", type: "text", sortOrder: 5 },
-  { id: "field-card-country", categoryId: "cat-card", name: "国家队", type: "text", sortOrder: 6 },
+  { id: "field-card-player", categoryId: "cat-card", name: "球员名称", type: "text", required: true, sortOrder: 4, autocomplete: true },
+  { id: "field-card-club", categoryId: "cat-card", name: "队伍", type: "text", sortOrder: 5, autocomplete: true },
   { id: "field-card-number", categoryId: "cat-card", name: "卡牌编号", type: "text", sortOrder: 7 },
   { id: "field-card-refractor", categoryId: "cat-card", name: "折射类型", type: "single", options: ["Base", "Refractor", "Prizm", "Mojo", "Gold", "Other"], sortOrder: 8 },
-  { id: "field-card-limited", categoryId: "cat-card", name: "限定编号", type: "text", sortOrder: 9 },
-  { id: "field-card-auto", categoryId: "cat-card", name: "是否签字", type: "boolean", sortOrder: 10 },
-  { id: "field-card-relic", categoryId: "cat-card", name: "是否物料", type: "boolean", sortOrder: 11 },
-  { id: "field-card-grade", categoryId: "cat-card", name: "品相/评级", type: "text", sortOrder: 12 }
+  { id: "field-card-special", categoryId: "cat-card", name: "特卡名称", type: "text", sortOrder: 9 },
+  { id: "field-card-serial-enabled", categoryId: "cat-card", name: "是否带编", type: "boolean", sortOrder: 10 },
+  { id: "field-card-serial-number", categoryId: "cat-card", name: "编号", type: "text", sortOrder: 11 },
+  { id: "field-card-relic", categoryId: "cat-card", name: "是否物料", type: "boolean", sortOrder: 12 },
+  { id: "field-card-auto", categoryId: "cat-card", name: "是否签字", type: "boolean", sortOrder: 13 },
+  { id: "field-card-oversize", categoryId: "cat-card", name: "是否大比例", type: "boolean", sortOrder: 14 }
 ];
 
 export const badgeFieldTemplate: CustomField[] = [
@@ -46,4 +47,3 @@ export const defaultFields: CustomField[] = [
   ...badgeFieldTemplate,
   ...beadFieldTemplate
 ];
-

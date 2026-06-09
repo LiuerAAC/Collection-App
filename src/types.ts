@@ -10,6 +10,7 @@ export type CustomField = {
   options?: string[];
   required?: boolean;
   sortOrder: number;
+  autocomplete?: boolean;
 };
 
 export type Category = {
@@ -47,6 +48,9 @@ export type CollectionItem = {
   tagIds: string[];
   customValues: Record<string, string | number | boolean | string[] | undefined>;
   storageLocation?: string;
+  price?: number;
+  purchaseDate?: string;
+  purchaseAmount?: number;
   purchaseId?: string;
   saleRecordId?: string;
   digitalAssetId?: string;
@@ -107,9 +111,11 @@ export type AppTab = "warehouse" | "gallery" | "analytics" | "settings";
 export type DraftItem = Pick<CollectionItem, "name" | "categoryId" | "status" | "description" | "imageUrl" | "storageLocation"> & {
   tagIds: string[];
   customValues: CollectionItem["customValues"];
+  price?: number;
+  purchaseDate?: string;
+  purchaseAmount?: number;
 };
 
 export type DraftPurchase = Omit<Purchase, "id" | "totalAmount">;
 
 export type DraftSaleRecord = Omit<SaleRecord, "id" | "totalAmount">;
-

@@ -1,166 +1,94 @@
-import React, { PropsWithChildren } from "react";
-import { Pressable, StyleSheet, Text, TextInput, TextInputProps, View } from "react-native";
-import { colors, radius, spacing } from "../theme";
+import { PropsWithChildren, ReactNode } from "react";
 
-export function Screen({ children }: PropsWithChildren) {
-  return <View style={styles.screen}>{children}</View>;
+export function Screen({ title, subtitle, children }: PropsWithChildren<{ title: string; subtitle: string }>) {
+  return (
+    <div className="screen" data-title={title} data-subtitle={subtitle}>{children}</div>
+  );
 }
 
-export function Section({ title, children }: PropsWithChildren<{ title: string }>) {
+export function Section({ title, copy, children }: PropsWithChildren<{ title: string; copy?: string }>) {
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
+    <section className="section">
+      <h3>{title}</h3>
+      {copy ? <p className="section-copy">{copy}</p> : null}
       {children}
-    </View>
+    </section>
   );
 }
 
-export function Card({ children }: PropsWithChildren) {
-  return <View style={styles.card}>{children}</View>;
+export function Card({ children, className = "" }: PropsWithChildren<{ className?: string }>) {
+  return <article className={`card ${className}`.trim()}>{children}</article>;
 }
 
-export function Button({ label, onPress, tone = "primary" }: { label: string; onPress: () => void; tone?: "primary" | "quiet" | "danger" }) {
+export function Button({ label, onClick, tone = "primary", type = "button" }: { label: string; onClick?: () => void; tone?: "primary" | "quiet" | "danger"; type?: "button" | "submit" }) {
   return (
-    <Pressable onPress={onPress} style={[styles.button, tone === "quiet" && styles.buttonQuiet, tone === "danger" && styles.buttonDanger]}>
-      <Text style={[styles.buttonText, tone === "quiet" && styles.buttonQuietText]}>{label}</Text>
-    </Pressable>
+    <button className={`button ${tone === "primary" ? "" : tone}`.trim()} onClick={onClick} type={type}>
+      {label}
+    </button>
   );
 }
 
-export function Chip({ label, active, onPress }: { label: string; active?: boolean; onPress?: () => void }) {
+export function Chip({ label, active, onClick }: { label: string; active?: boolean; onClick?: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
-      <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
-    </Pressable>
+    <button className={`chip ${active ? "active" : ""}`.trim()} onClick={onClick} type="button">
+      {label}
+    </button>
   );
 }
 
-export function Field({ label, value, onChangeText, placeholder, keyboardType }: TextInputProps & { label: string }) {
+export function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  textarea,
+  type = "text"
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  textarea?: boolean;
+  type?: string;
+}) {
   return (
-    <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        keyboardType={keyboardType}
-        style={styles.input}
-        placeholderTextColor={colors.muted}
-      />
-    </View>
+    <div className="field">
+      <label>{label}</label>
+      {textarea ? (
+        <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+      ) : (
+        <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} type={type} />
+      )}
+    </div>
   );
 }
 
-export function Stat({ label, value }: { label: string; value: string }) {
+export function Stat({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
-    <View style={styles.stat}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    <div className="stat">
+      <strong>{value}</strong>
+      <div>{label}</div>
+      {detail ? <div className="muted">{detail}</div> : null}
+    </div>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    padding: spacing.lg
-  },
-  section: {
-    marginBottom: spacing.lg
-  },
-  sectionTitle: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: spacing.md
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    padding: spacing.md,
-    marginBottom: spacing.md
-  },
-  button: {
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md
-  },
-  buttonQuiet: {
-    backgroundColor: colors.accentSoft
-  },
-  buttonDanger: {
-    backgroundColor: colors.red
-  },
-  buttonText: {
-    color: colors.surface,
-    fontSize: 15,
-    fontWeight: "700"
-  },
-  buttonQuietText: {
-    color: colors.accent
-  },
-  chip: {
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.sm,
-    marginRight: spacing.sm
-  },
-  chipActive: {
-    backgroundColor: colors.accentSoft,
-    borderColor: colors.accent
-  },
-  chipText: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "600"
-  },
-  chipTextActive: {
-    color: colors.accent
-  },
-  field: {
-    marginBottom: spacing.md
-  },
-  label: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-    marginBottom: spacing.xs
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    color: colors.text,
-    fontSize: 15,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md
-  },
-  stat: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flex: 1,
-    padding: spacing.md
-  },
-  statValue: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: "800"
-  },
-  statLabel: {
-    color: colors.muted,
-    fontSize: 12,
-    marginTop: spacing.xs
-  }
-});
+export function Row({ children, wrap, between }: PropsWithChildren<{ wrap?: boolean; between?: boolean }>) {
+  return <div className={`row ${wrap ? "wrap" : ""} ${between ? "between" : ""}`.trim()}>{children}</div>;
+}
 
+export function Stack({ children }: PropsWithChildren) {
+  return <div className="stack">{children}</div>;
+}
+
+export function EmptyState({ title, copy, action }: { title: string; copy: string; action?: ReactNode }) {
+  return (
+    <Card>
+      <Stack>
+        <strong>{title}</strong>
+        <span className="muted">{copy}</span>
+        {action}
+      </Stack>
+    </Card>
+  );
+}

@@ -2,21 +2,36 @@
   "name": "collection-app",
   "version": "0.1.0",
   "private": true,
-  "main": "node_modules/expo/AppEntry.js",
+  "description": "none",
+  "keywords": [
+    "none"
+  ],
+  "homepage": "https://github.com/LiuerAAC/Collection-App#readme",
+  "bugs": {
+    "url": "https://github.com/LiuerAAC/Collection-App/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LiuerAAC/Collection-App.git"
+  },
+  "license": "ISC",
+  "author": "liuer",
   "scripts": {
-    "start": "expo start",
-    "ios": "expo start --ios",
-    "android": "expo start --android",
-    "web": "expo start --web",
+    "dev": "vite",
+    "start": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "expo": "~51.0.0",
     "react": "18.2.0",
-    "react-native": "0.74.5"
+    "react-dom": "18.2.0"
   },
   "devDependencies": {
+    "@types/react-dom": "^18.2.25",
+    "@vitejs/plugin-react": "^4.3.1",
     "@types/react": "~18.2.79",
-    "typescript": "~5.3.3"
+    "typescript": "~5.3.3",
+    "vite": "^5.4.8"
   }
 }

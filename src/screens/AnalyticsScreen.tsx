@@ -1,7 +1,4 @@
-import React from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { Card, Screen, Section, Stat } from "../components/ui";
-import { colors, spacing } from "../theme";
+import { Card, Row, Screen, Section, Stat } from "../components/ui";
 import { useCollection } from "../store/collectionStore";
 
 export function AnalyticsScreen() {
@@ -12,75 +9,33 @@ export function AnalyticsScreen() {
   const saleAmount = saleRecords.reduce((sum, sale) => sum + sale.totalAmount, 0);
 
   return (
-    <Screen>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <Section title="分析">
-          <View style={styles.statsRow}>
-            <Stat label="藏品数" value={String(items.length)} />
-            <Stat label="商品金额" value={`¥${itemAmount}`} />
-          </View>
-          <View style={styles.statsRow}>
-            <Stat label="邮费" value={`¥${shippingAmount}`} />
-            <Stat label="总金额" value={`¥${totalAmount}`} />
-          </View>
-          <View style={styles.statsRow}>
-            <Stat label="售出总额" value={`¥${saleAmount}`} />
-            <Stat label="卡册数" value="1" />
-          </View>
-        </Section>
+    <Screen title="数据开始有反馈，人才会愿意持续录" subtitle="PWA 第一版先给出最直接的数量和金额反馈，不在查询器里过度花活。">
+      <Section title="核心看板">
+        <div className="stats">
+          <Stat label="藏品数" value={String(items.length)} />
+          <Stat label="商品金额" value={`¥${itemAmount}`} />
+          <Stat label="邮费" value={`¥${shippingAmount}`} />
+          <Stat label="总金额" value={`¥${totalAmount}`} />
+          <Stat label="售出总额" value={`¥${saleAmount}`} />
+          <Stat label="标签数" value={String(tags.length)} />
+        </div>
+      </Section>
 
-        <Section title="按大类统计">
+      <Section title="按大类统计">
+        <div className="card-grid">
           {categories.map((category) => {
             const count = items.filter((item) => item.categoryId === category.id).length;
             return (
               <Card key={category.id}>
-                <View style={styles.line}>
-                  <Text style={styles.title}>{category.name}</Text>
-                  <Text style={styles.value}>{count} 件</Text>
-                </View>
+                <Row between>
+                  <strong>{category.name}</strong>
+                  <span>{count} 件</span>
+                </Row>
               </Card>
             );
           })}
-        </Section>
-
-        <Section title="按 Tag 统计">
-          {tags.map((tag) => {
-            const count = items.filter((item) => item.tagIds.includes(tag.id)).length;
-            return (
-              <Card key={tag.id}>
-                <View style={styles.line}>
-                  <Text style={styles.title}>{tag.name}</Text>
-                  <Text style={styles.value}>{count} 件</Text>
-                </View>
-              </Card>
-            );
-          })}
-        </Section>
-      </ScrollView>
+        </div>
+      </Section>
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  statsRow: {
-    flexDirection: "row",
-    gap: spacing.md,
-    marginBottom: spacing.md
-  },
-  line: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between"
-  },
-  title: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "800"
-  },
-  value: {
-    color: colors.accent,
-    fontSize: 15,
-    fontWeight: "800"
-  }
-});
-
