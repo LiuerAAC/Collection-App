@@ -1,5 +1,7 @@
 const CACHE_NAME = "collection-app-v0-1";
-const APP_SHELL = ["/", "/manifest.webmanifest", "/icons/icon.svg"];
+const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, "");
+const withScope = (path) => `${SCOPE_PATH}${path}`;
+const APP_SHELL = [withScope("/"), withScope("/manifest.webmanifest"), withScope("/icons/icon.svg")];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -35,7 +37,7 @@ self.addEventListener("fetch", (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
           return response;
         })
-        .catch(() => caches.match("/"));
+        .catch(() => caches.match(withScope("/")));
     })
   );
 });

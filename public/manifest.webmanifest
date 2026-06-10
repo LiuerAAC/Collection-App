@@ -2,17 +2,17 @@
   "name": "Collection App",
   "short_name": "Collection",
   "description": "私人收藏管理 PWA",
-  "start_url": "/",
+  "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "background_color": "#f6f1e8",
   "theme_color": "#123126",
   "icons": [
     {
-      "src": "/icons/icon.svg",
+      "src": "icons/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     }
   ]
 }
-
