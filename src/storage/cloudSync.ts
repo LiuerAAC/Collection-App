@@ -171,6 +171,58 @@ function fileExtension(record: PendingAssetRecord) {
   return "jpg";
 }
 
+function blobExtension(blob: Blob) {
+  if (blob.type === "image/png") return "png";
+  if (blob.type === "image/webp") return "webp";
+  if (blob.type === "image/svg+xml") return "svg";
+  if (blob.type === "image/gif") return "gif";
+  return "jpg";
+}
+
+async function optimizeImageBlob(blob: Blob, maxWidth = 1280, quality = 0.84) {
+  if (!blob.type.startsWith("image/") || blob.type === "image/svg+xml" || blob.type === "image/gif") {
+    return { blob, extension: blobExtension(blob) };
+  }
+
+  try {
+    const imageBitmap = await createImageBitmap(blob);
+    const scale = Math.min(1, maxWidth / imageBitmap.width);
+    const width = Math.max(1, Math.round(imageBitmap.width * scale));
+    const height = Math.max(1, Math.round(imageBitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      imageBitmap.close();
+      return { blob, extension: blobExtension(blob) };
+    }
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(imageBitmap, 0, 0, width, height);
+    imageBitmap.close();
+
+    const optimizedBlob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((nextBlob) => {
+        if (nextBlob) {
+          resolve(nextBlob);
+          return;
+        }
+        reject(new Error("image optimization failed"));
+      }, "image/jpeg", quality);
+    });
+
+    if (optimizedBlob.size >= blob.size) {
+      return { blob, extension: blobExtension(blob) };
+    }
+
+    return { blob: optimizedBlob, extension: "jpg" };
+  } catch {
+    return { blob, extension: blobExtension(blob) };
+  }
+}
+
 export async function uploadPendingAssets(
   config: CloudSyncConfig,
   snapshot: AppStateSnapshot,
@@ -209,8 +261,9 @@ export async function uploadPendingAssets(
 
   const uploadedPaths = new Map<string, string>();
   for (const [assetId, record] of assetMap) {
-    const objectPath = `${config.datasetId}/${record.target}s/${assetId}.${fileExtension(record)}`;
-    const remoteUrl = await uploadBlobToSupabaseStorage(config, objectPath, record.blob, accessToken);
+    const optimized = await optimizeImageBlob(record.blob);
+    const objectPath = `${config.datasetId}/${record.target}s/${assetId}.${optimized.extension || fileExtension(record)}`;
+    const remoteUrl = await uploadBlobToSupabaseStorage(config, objectPath, optimized.blob, accessToken);
     uploadedPaths.set(assetId, remoteUrl);
     await deletePendingAsset(assetId);
   }

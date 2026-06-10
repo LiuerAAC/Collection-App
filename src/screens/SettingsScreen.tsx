@@ -25,7 +25,8 @@ export function SettingsScreen() {
     mergeTags,
     updateSyncConfig,
     exportBackup,
-    pushToCloud
+    pushToCloud,
+    pullFromCloud
   } = useCollection();
   const [newCategoryName, setNewCategoryName] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState(categories[0]?.id ?? "");
@@ -109,6 +110,14 @@ export function SettingsScreen() {
     const interval = Number(value);
     updateSyncConfig({ autoSyncIntervalMinutes: Number.isFinite(interval) ? Math.max(1, interval) : 10 });
   };
+
+  const lastBackupLabel = storageStatus.lastSyncedAt
+    ? new Date(storageStatus.lastSyncedAt).toLocaleString()
+    : storageStatus.syncInFlight && storageStatus.syncAction === "pull"
+      ? "Checking cloud..."
+      : storageStatus.cloudSyncChecked
+        ? "No cloud backup found"
+        : "Not checked yet";
 
   return (
     <Screen title="Settings" subtitle="Edit categories, fields, and tags in one place.">
@@ -298,9 +307,7 @@ export function SettingsScreen() {
                   <div className="field">
                     <label>Last backup</label>
                     <div className="readonly-field">
-                      {storageStatus.lastSyncAction === "push" && storageStatus.lastSyncedAt
-                        ? new Date(storageStatus.lastSyncedAt).toLocaleString()
-                        : "Not backed up yet"}
+                      {lastBackupLabel}
                     </div>
                   </div>
                   <Field
@@ -327,6 +334,12 @@ export function SettingsScreen() {
                     className="compact-button"
                     label={storageStatus.syncInFlight && storageStatus.syncAction === "push" ? "Backing up..." : "Push to cloud"}
                     onClick={() => void pushToCloud()}
+                    tone="quiet"
+                  />
+                  <Button
+                    className="compact-button"
+                    label={storageStatus.syncInFlight && storageStatus.syncAction === "pull" ? "Pulling..." : "Pull from cloud"}
+                    onClick={() => void pullFromCloud()}
                     tone="quiet"
                   />
                   <Button className="compact-button" label="Export backup" onClick={exportBackup} tone="quiet" />

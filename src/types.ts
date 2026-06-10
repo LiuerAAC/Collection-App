@@ -201,6 +201,7 @@ export type StorageStatus = {
   syncAction?: "push" | "pull";
   lastSyncAction?: "push" | "pull";
   lastSyncedAt?: string;
+  cloudSyncChecked?: boolean;
   lastError?: string;
 };
 

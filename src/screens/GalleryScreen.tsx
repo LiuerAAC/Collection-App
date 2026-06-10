@@ -7,6 +7,11 @@ function displayImageUrl(entry: { imageUrl?: string; localPreviewUrl?: string })
   return String(entry.localPreviewUrl || entry.imageUrl || "");
 }
 
+const imageLoadProps = {
+  decoding: "async" as const,
+  loading: "lazy" as const
+};
+
 const layoutMap = {
   "2x2": { rows: 2, columns: 2 },
   "3x3": { rows: 3, columns: 3 },
@@ -86,6 +91,60 @@ export function GalleryScreen() {
     setShowContainerEditor(true);
   };
 
+  const newContainerForm = (
+    <form onSubmit={submitContainer}>
+      <div className="editable-row container-edit-row new-container-row">
+        <input
+          className="inline-input"
+          onChange={(event) => setContainerDraft((current) => ({ ...current, name: event.target.value }))}
+          placeholder="New container"
+          value={containerDraft.name}
+        />
+        <select
+          className="inline-input container-inline-select"
+          onChange={(event) => setContainerDraft((current) => ({ ...current, containerType: event.target.value as Album["containerType"] }))}
+          value={containerDraft.containerType}
+        >
+          <option value="album">Album</option>
+          <option value="slider">Slider</option>
+        </select>
+        {containerDraft.containerType === "slider" ? (
+          <input
+            aria-label="Cards"
+            className="inline-input container-inline-pages"
+            min="1"
+            onChange={(event) => setContainerDraft((current) => ({ ...current, pageCount: Math.max(1, Number(event.target.value || 1)) }))}
+            placeholder="Cards"
+            type="number"
+            value={containerDraft.pageCount}
+          />
+        ) : (
+          <>
+            <select
+              className="inline-input container-inline-select"
+              onChange={(event) => setContainerDraft((current) => ({ ...current, layoutType: event.target.value as Album["layoutType"] }))}
+              value={containerDraft.layoutType}
+            >
+              <option value="2x2">2 x 2</option>
+              <option value="3x3">3 x 3</option>
+              <option value="4x3">4 x 3</option>
+            </select>
+            <input
+              aria-label="Pages"
+              className="inline-input container-inline-pages"
+              min="1"
+              onChange={(event) => setContainerDraft((current) => ({ ...current, pageCount: Math.max(1, Number(event.target.value || 1)) }))}
+              placeholder="Pages"
+              type="number"
+              value={containerDraft.pageCount}
+            />
+          </>
+        )}
+        <Button className="compact-button" label="Add" type="submit" />
+      </div>
+    </form>
+  );
+
   const closePicker = () => {
     setPickerSlot(null);
   };
@@ -103,7 +162,12 @@ export function GalleryScreen() {
   if (!container) {
     return (
       <Screen title="Gallery" subtitle="Visual display containers live here.">
-        <EmptyState title="No containers yet" copy="Create the first container and start placing images." action={<Button label="Add container" onClick={startNewContainer} />} />
+        <EmptyState title="No containers yet" copy="Create the first container and start placing images." action={<Button label="Add gallery" onClick={startNewContainer} />} />
+        {showContainerEditor ? (
+          <Card className="container-editor-card">
+            <Stack>{newContainerForm}</Stack>
+          </Card>
+        ) : null}
       </Screen>
     );
   }
@@ -198,57 +262,7 @@ export function GalleryScreen() {
                 ))}
               </div>
 
-              <form onSubmit={submitContainer}>
-                <div className="editable-row container-edit-row new-container-row">
-                  <input
-                    className="inline-input"
-                    onChange={(event) => setContainerDraft((current) => ({ ...current, name: event.target.value }))}
-                    placeholder="New container"
-                    value={containerDraft.name}
-                  />
-                  <select
-                    className="inline-input container-inline-select"
-                    onChange={(event) => setContainerDraft((current) => ({ ...current, containerType: event.target.value as Album["containerType"] }))}
-                    value={containerDraft.containerType}
-                  >
-                    <option value="album">Album</option>
-                    <option value="slider">Slider</option>
-                  </select>
-                  {containerDraft.containerType === "slider" ? (
-                    <input
-                      aria-label="Cards"
-                      className="inline-input container-inline-pages"
-                      min="1"
-                      onChange={(event) => setContainerDraft((current) => ({ ...current, pageCount: Math.max(1, Number(event.target.value || 1)) }))}
-                      placeholder="Cards"
-                      type="number"
-                      value={containerDraft.pageCount}
-                    />
-                  ) : (
-                    <>
-                      <select
-                        className="inline-input container-inline-select"
-                        onChange={(event) => setContainerDraft((current) => ({ ...current, layoutType: event.target.value as Album["layoutType"] }))}
-                        value={containerDraft.layoutType}
-                      >
-                        <option value="2x2">2 x 2</option>
-                        <option value="3x3">3 x 3</option>
-                        <option value="4x3">4 x 3</option>
-                      </select>
-                      <input
-                        aria-label="Pages"
-                        className="inline-input container-inline-pages"
-                        min="1"
-                        onChange={(event) => setContainerDraft((current) => ({ ...current, pageCount: Math.max(1, Number(event.target.value || 1)) }))}
-                        placeholder="Pages"
-                        type="number"
-                        value={containerDraft.pageCount}
-                      />
-                    </>
-                  )}
-                  <Button className="compact-button" label="Add" type="submit" />
-                </div>
-              </form>
+              {newContainerForm}
             </Stack>
           </Card>
         ) : null}
@@ -281,9 +295,9 @@ export function GalleryScreen() {
                   <div className="slot-shell" key={`${slot.row}-${slot.column}`}>
                     <button className="slot image-slot" onClick={() => setPickerSlot({ row: slot.row, column: slot.column })} type="button">
                       {slot.photo?.imageUrl ? (
-                        <img alt={slot.photo.title ?? "Photo"} src={displayImageUrl(slot.photo)} />
+                        <img {...imageLoadProps} alt={slot.photo.title ?? "Photo"} src={displayImageUrl(slot.photo)} />
                       ) : slot.item?.imageUrl ? (
-                        <img alt={slot.item.name} src={displayImageUrl(slot.item)} />
+                        <img {...imageLoadProps} alt={slot.item.name} src={displayImageUrl(slot.item)} />
                       ) : (
                         <span className="slot-empty-dot" aria-hidden="true" />
                       )}
@@ -329,9 +343,9 @@ export function GalleryScreen() {
             <div className="slider-stage-shell">
               <button className="slider-stage" onClick={() => setPickerSlot({ row: sliderIndex, column: 0 })} type="button">
                 {activeSliderPhoto?.imageUrl ? (
-                  <img alt={activeSliderPhoto.title ?? "Photo"} src={displayImageUrl(activeSliderPhoto)} />
+                  <img {...imageLoadProps} alt={activeSliderPhoto.title ?? "Photo"} src={displayImageUrl(activeSliderPhoto)} />
                 ) : activeSliderItem?.imageUrl ? (
-                  <img alt={activeSliderItem.name} src={displayImageUrl(activeSliderItem)} />
+                  <img {...imageLoadProps} alt={activeSliderItem.name} src={displayImageUrl(activeSliderItem)} />
                 ) : (
                   <div className="image-tile-placeholder">Tap to add</div>
                 )}
@@ -391,7 +405,7 @@ export function GalleryScreen() {
                       type="button"
                     >
                       <div className="picker-thumb">
-                        {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <div className="image-tile-placeholder">No image</div>}
+                        {displayImageUrl(item) ? <img {...imageLoadProps} alt={item.name} src={displayImageUrl(item)} /> : <div className="image-tile-placeholder">No image</div>}
                       </div>
                       <span>{item.name}</span>
                     </button>
@@ -407,7 +421,7 @@ export function GalleryScreen() {
                       type="button"
                     >
                       <div className="picker-thumb">
-                        <img alt={photo.title ?? "Photo"} src={displayImageUrl(photo)} />
+                        <img {...imageLoadProps} alt={photo.title ?? "Photo"} src={displayImageUrl(photo)} />
                       </div>
                       <span>{photo.title || "Photo"}</span>
                     </button>
@@ -427,7 +441,7 @@ export function GalleryScreen() {
             {infoItem ? (
               <div className="stack">
                 <div className="detail-image compact-photo">
-                  {displayImageUrl(infoItem) ? <img alt={infoItem.name} src={displayImageUrl(infoItem)} /> : <div className="image-tile-placeholder">No image</div>}
+                  {displayImageUrl(infoItem) ? <img {...imageLoadProps} alt={infoItem.name} src={displayImageUrl(infoItem)} /> : <div className="image-tile-placeholder">No image</div>}
                 </div>
                 <strong>{infoItem.name}</strong>
                 <span className="muted">{infoItem.storageLocation || "Storage not set"}</span>
@@ -436,7 +450,7 @@ export function GalleryScreen() {
             {infoPhoto ? (
               <div className="stack">
                 <div className="detail-image compact-photo">
-                  <img alt={infoPhoto.title ?? "Photo"} src={displayImageUrl(infoPhoto)} />
+                  <img {...imageLoadProps} alt={infoPhoto.title ?? "Photo"} src={displayImageUrl(infoPhoto)} />
                 </div>
                 <div className="linked-thumb-row">
                   {infoPhotoItems.map((item, index) => (
@@ -447,7 +461,7 @@ export function GalleryScreen() {
                       type="button"
                     >
                       <span className="linked-thumb-order">{index + 1}</span>
-                      {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <span className="linked-thumb-fallback">{item.name.slice(0, 1)}</span>}
+                      {displayImageUrl(item) ? <img {...imageLoadProps} alt={item.name} src={displayImageUrl(item)} /> : <span className="linked-thumb-fallback">{item.name.slice(0, 1)}</span>}
                     </button>
                   ))}
                 </div>
@@ -455,7 +469,7 @@ export function GalleryScreen() {
                   <div className="linked-item-card">
                     <div className="row">
                       <div className="thumb">
-                        {displayImageUrl(activeInfoPhotoItem) ? <img alt={activeInfoPhotoItem.name} src={displayImageUrl(activeInfoPhotoItem)} /> : <div className="image-tile-placeholder">No image</div>}
+                        {displayImageUrl(activeInfoPhotoItem) ? <img {...imageLoadProps} alt={activeInfoPhotoItem.name} src={displayImageUrl(activeInfoPhotoItem)} /> : <div className="image-tile-placeholder">No image</div>}
                       </div>
                       <div className="stack">
                         <strong>{activeInfoPhotoItem.name}</strong>

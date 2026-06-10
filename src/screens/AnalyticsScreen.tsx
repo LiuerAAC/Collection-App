@@ -154,7 +154,7 @@ export function AnalyticsScreen() {
   };
 
   const statusDistribution = useMemo(() => {
-    const labels: Array<CollectionItem["status"]> = ["owned", "in_transit", "sold", "traded", "wanted"];
+    const labels: Array<CollectionItem["status"]> = ["owned", "in_transit", "sold", "traded"];
     const counts = labels.map((status) => ({
       status,
       count: filteredItems.filter((item) => item.status === status).length

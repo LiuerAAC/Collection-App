@@ -71,6 +71,11 @@ function displayImageUrl(entry: { imageUrl?: string; localPreviewUrl?: string })
   return String(entry.localPreviewUrl || entry.imageUrl || "");
 }
 
+const imageLoadProps = {
+  decoding: "async" as const,
+  loading: "lazy" as const
+};
+
 const emptyChecklistDraft = {
   seriesName: "",
   rawEntries: ""
@@ -771,7 +776,7 @@ export function WarehouseScreen() {
             <div className="image-grid compact-grid">
               {pagedItems.map((item) => (
                 <button className="image-tile small" key={item.id} onClick={() => setSelectedItemId(item.id)} type="button">
-                  {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <div className="image-tile-placeholder">No image</div>}
+                  {displayImageUrl(item) ? <img {...imageLoadProps} alt={item.name} src={displayImageUrl(item)} /> : <div className="image-tile-placeholder">No image</div>}
                 </button>
               ))}
             </div>
@@ -798,7 +803,7 @@ export function WarehouseScreen() {
                   <div className="detail-hero-layout">
                     <button className="detail-image compact-photo clickable-image detail-photo-large" onClick={() => editImageInputRef.current?.click()} type="button">
                       {String(editDraft.imageUrl ?? selectedItem.imageUrl ?? "").trim() ? (
-                        <img alt={selectedItem.name} src={displayImageUrl({ imageUrl: String(editDraft.imageUrl ?? selectedItem.imageUrl ?? ""), localPreviewUrl: String(editDraft.localPreviewUrl ?? selectedItem.localPreviewUrl ?? "") })} />
+                        <img {...imageLoadProps} alt={selectedItem.name} src={displayImageUrl({ imageUrl: String(editDraft.imageUrl ?? selectedItem.imageUrl ?? ""), localPreviewUrl: String(editDraft.localPreviewUrl ?? selectedItem.localPreviewUrl ?? "") })} />
                       ) : (
                         <div className="image-tile-placeholder">No image</div>
                       )}
@@ -977,7 +982,7 @@ export function WarehouseScreen() {
 
                 <div className="integrated-form">
                   <button className="detail-image uploader-tile compact-photo clickable-image" onClick={() => addImageInputRef.current?.click()} type="button">
-                    {displayImageUrl(draft) ? <img alt="Item preview" src={displayImageUrl(draft)} /> : <div className="image-tile-placeholder">Add image</div>}
+                    {displayImageUrl(draft) ? <img {...imageLoadProps} alt="Item preview" src={displayImageUrl(draft)} /> : <div className="image-tile-placeholder">Add image</div>}
                     <input accept="image/*" capture="environment" hidden onChange={onAddImage} ref={addImageInputRef} type="file" />
                   </button>
 
@@ -1243,7 +1248,7 @@ export function WarehouseScreen() {
                                 <div className="linked-mini-row">
                                   {linkedItems.map((item) => (
                                     <div className="linked-mini-card" key={item.id}>
-                                      {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <span>{item.name.slice(0, 1)}</span>}
+                                      {displayImageUrl(item) ? <img {...imageLoadProps} alt={item.name} src={displayImageUrl(item)} /> : <span>{item.name.slice(0, 1)}</span>}
                                     </div>
                                   ))}
                                 </div>
@@ -1392,7 +1397,7 @@ export function WarehouseScreen() {
                         >
                           <div className="picker-card-shell">
                             <div className="picker-thumb">
-                              {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <div className="image-tile-placeholder">No image</div>}
+                              {displayImageUrl(item) ? <img {...imageLoadProps} alt={item.name} src={displayImageUrl(item)} /> : <div className="image-tile-placeholder">No image</div>}
                             </div>
                           </div>
                           <strong>{item.name}</strong>
@@ -1429,7 +1434,7 @@ export function WarehouseScreen() {
             <div className="image-grid photo-grid">
               {pagedPhotos.map((photo) => (
                 <button className="image-tile photo-tile" key={photo.id} onClick={() => openPhotoDetail(photo.id)} type="button">
-                  <img alt={photo.title ?? "Photo"} src={displayImageUrl(photo)} />
+                  <img {...imageLoadProps} alt={photo.title ?? "Photo"} src={displayImageUrl(photo)} />
                 </button>
               ))}
             </div>
@@ -1455,7 +1460,7 @@ export function WarehouseScreen() {
                 <form onSubmit={submitPhoto}>
                   <div className="detail-hero-layout photo-detail-layout">
                     <button className="detail-image compact-photo clickable-image detail-photo-large" onClick={() => addPhotoInputRef.current?.click()} type="button">
-                      {displayImageUrl(photoDraft) ? <img alt="Photo preview" src={displayImageUrl(photoDraft)} /> : <div className="image-tile-placeholder">Add photo</div>}
+                      {displayImageUrl(photoDraft) ? <img {...imageLoadProps} alt="Photo preview" src={displayImageUrl(photoDraft)} /> : <div className="image-tile-placeholder">Add photo</div>}
                     </button>
                     <div className="detail-tags-panel">
                       <Field label="Title" value={photoDraft.title ?? ""} onChange={(value) => setPhotoDraft((current) => ({ ...current, title: value }))} placeholder="Match day shot" />
@@ -1513,7 +1518,7 @@ export function WarehouseScreen() {
                 <form onSubmit={submitPhotoUpdate}>
                   <div className="detail-hero-layout photo-detail-layout">
                     <button className="detail-image compact-photo clickable-image detail-photo-large" onClick={() => editPhotoInputRef.current?.click()} type="button">
-                      <img alt={selectedPhoto.title ?? "Photo"} src={displayImageUrl({ imageUrl: photoDraft.imageUrl || selectedPhoto.imageUrl, localPreviewUrl: photoDraft.localPreviewUrl || selectedPhoto.localPreviewUrl })} />
+                      <img {...imageLoadProps} alt={selectedPhoto.title ?? "Photo"} src={displayImageUrl({ imageUrl: photoDraft.imageUrl || selectedPhoto.imageUrl, localPreviewUrl: photoDraft.localPreviewUrl || selectedPhoto.localPreviewUrl })} />
                     </button>
                     <div className="detail-tags-panel">
                       <div className="field">
@@ -1527,7 +1532,7 @@ export function WarehouseScreen() {
                               type="button"
                             >
                               <span className="linked-thumb-order">{index + 1}</span>
-                              {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <span className="linked-thumb-fallback">{item.name.slice(0, 1)}</span>}
+                              {displayImageUrl(item) ? <img {...imageLoadProps} alt={item.name} src={displayImageUrl(item)} /> : <span className="linked-thumb-fallback">{item.name.slice(0, 1)}</span>}
                             </button>
                           ))}
                           <button className="tag-plus-button" onClick={() => setShowPhotoLinkPicker((value) => !value)} title="Link cards" type="button">
@@ -1574,7 +1579,7 @@ export function WarehouseScreen() {
                         <div className="linked-item-card">
                           <div className="row">
                             <div className="thumb">
-                              {displayImageUrl(selectedLinkedItem) ? <img alt={selectedLinkedItem.name} src={displayImageUrl(selectedLinkedItem)} /> : <div className="image-tile-placeholder">No image</div>}
+                              {displayImageUrl(selectedLinkedItem) ? <img {...imageLoadProps} alt={selectedLinkedItem.name} src={displayImageUrl(selectedLinkedItem)} /> : <div className="image-tile-placeholder">No image</div>}
                             </div>
                             <div className="stack">
                               <strong>{selectedLinkedItem.name}</strong>

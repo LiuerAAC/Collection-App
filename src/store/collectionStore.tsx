@@ -94,9 +94,8 @@ function fileToDataUrl(file: Blob) {
   });
 }
 
-async function makePreviewBlob(file: File) {
+async function makeImageBlob(file: File, maxWidth: number, quality = 0.82) {
   const imageBitmap = await createImageBitmap(file);
-  const maxWidth = 480;
   const scale = Math.min(1, maxWidth / imageBitmap.width);
   const width = Math.max(1, Math.round(imageBitmap.width * scale));
   const height = Math.max(1, Math.round(imageBitmap.height * scale));
@@ -107,6 +106,8 @@ async function makePreviewBlob(file: File) {
   if (!context) {
     throw new Error("preview canvas unavailable");
   }
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
   context.drawImage(imageBitmap, 0, 0, width, height);
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((nextBlob) => {
@@ -115,7 +116,7 @@ async function makePreviewBlob(file: File) {
         return;
       }
       reject(new Error("preview generation failed"));
-    }, "image/jpeg", 0.82);
+    }, "image/jpeg", quality);
   });
   imageBitmap.close();
   return blob;
@@ -184,6 +185,8 @@ export function CollectionProvider({ children }: PropsWithChildren) {
     syncInFlight: false
   });
   const snapshotChangeGuard = useRef(true);
+  const cloudBootstrapKey = useRef<string | null>(null);
+  const syncQueueLength = useRef(0);
   const createManagedSyncConfig = () => {
     const next = createDefaultSyncConfig();
     if (supabaseRuntimeConfig.url && supabaseRuntimeConfig.anonKey) {
@@ -315,11 +318,75 @@ export function CollectionProvider({ children }: PropsWithChildren) {
   }, [snapshot, storageStatus.ready]);
 
   useEffect(() => {
+    syncQueueLength.current = syncQueue.length;
     setStorageStatus((current) => ({
       ...current,
       pendingSyncCount: syncQueue.length
     }));
   }, [syncQueue.length]);
+
+  useEffect(() => {
+    if (!storageStatus.ready || !storageStatus.online || syncConfig.provider !== "supabase" || !session?.accessToken) {
+      return;
+    }
+
+    const bootstrapKey = `${storageScopeKey}:${syncConfig.datasetId}`;
+    if (cloudBootstrapKey.current === bootstrapKey) {
+      return;
+    }
+
+    let cancelled = false;
+    cloudBootstrapKey.current = bootstrapKey;
+    setStorageStatus((current) => ({
+      ...current,
+      syncInFlight: true,
+      syncAction: "pull",
+      lastError: undefined
+    }));
+
+    pullSnapshotFromSupabase(syncConfig, session.accessToken).then((remote) => {
+      if (cancelled) return;
+
+      if (!remote) {
+        setStorageStatus((current) => ({
+          ...current,
+          syncInFlight: false,
+          syncAction: undefined,
+          cloudSyncChecked: true
+        }));
+        return;
+      }
+
+      const hasPendingLocalChanges = syncQueueLength.current > 0;
+      if (!hasPendingLocalChanges) {
+        snapshotChangeGuard.current = true;
+        applySnapshot(remote.payload);
+      }
+
+      setStorageStatus((current) => ({
+        ...current,
+        syncInFlight: false,
+        syncAction: undefined,
+        lastSyncAction: hasPendingLocalChanges ? current.lastSyncAction : "pull",
+        lastSyncedAt: remote.updated_at,
+        cloudSyncChecked: true,
+        lastError: undefined
+      }));
+    }).catch((error) => {
+      if (cancelled) return;
+      cloudBootstrapKey.current = null;
+      setStorageStatus((current) => ({
+        ...current,
+        syncInFlight: false,
+        syncAction: undefined,
+        lastError: error instanceof Error ? error.message : "Cloud pull failed."
+      }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [storageStatus.ready, storageStatus.online, syncConfig, session?.accessToken, storageScopeKey, syncQueue.length]);
 
   const pushToCloud = async () => {
     if (syncConfig.provider !== "supabase") {
@@ -345,6 +412,7 @@ export function CollectionProvider({ children }: PropsWithChildren) {
         syncAction: undefined,
         lastSyncAction: "push",
         lastSyncedAt: syncedAt,
+        cloudSyncChecked: true,
         lastError: undefined
       }));
     } catch (error) {
@@ -387,6 +455,7 @@ export function CollectionProvider({ children }: PropsWithChildren) {
           ...current,
           syncInFlight: false,
           syncAction: undefined,
+          cloudSyncChecked: true,
           lastError: "No cloud dataset was found yet."
         }));
         return;
@@ -400,6 +469,7 @@ export function CollectionProvider({ children }: PropsWithChildren) {
         syncAction: undefined,
         lastSyncAction: "pull",
         lastSyncedAt: remote.updated_at,
+        cloudSyncChecked: true,
         lastError: undefined
       }));
     } catch (error) {
@@ -437,9 +507,11 @@ export function CollectionProvider({ children }: PropsWithChildren) {
 
   const stageLocalImage = async (target: "item" | "photo", file: File) => {
     let previewUrl = "";
+    let uploadBlob: Blob = file;
     try {
-      const previewBlob = await makePreviewBlob(file);
+      const previewBlob = await makeImageBlob(file, 480, 0.82);
       previewUrl = await fileToDataUrl(previewBlob);
+      uploadBlob = await makeImageBlob(file, 1280, 0.84);
     } catch {
       previewUrl = await fileToDataUrl(file);
     }
@@ -448,9 +520,9 @@ export function CollectionProvider({ children }: PropsWithChildren) {
       id: assetId,
       ownerScopeKey: storageScopeKey,
       target,
-      mimeType: file.type || "image/jpeg",
-      fileName: file.name || `${assetId}.jpg`,
-      blob: file,
+      mimeType: uploadBlob.type || file.type || "image/jpeg",
+      fileName: uploadBlob === file ? file.name || `${assetId}.jpg` : `${assetId}.jpg`,
+      blob: uploadBlob,
       createdAt: new Date().toISOString()
     };
     await savePendingAsset(pendingAsset);

@@ -19,6 +19,9 @@ export function registerServiceWorker() {
 
     navigator.serviceWorker
       .register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })
+      .then((registration) => {
+        registration.update().catch(() => undefined);
+      })
       .catch(() => undefined);
   });
 }
