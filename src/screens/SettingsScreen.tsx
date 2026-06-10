@@ -10,6 +10,8 @@ export function SettingsScreen() {
     categories,
     fields,
     tags,
+    storageStatus,
+    syncConfig,
     addCategory,
     updateCategory,
     deleteCategory,
@@ -20,7 +22,10 @@ export function SettingsScreen() {
     addTag,
     updateTag,
     deleteTag,
-    mergeTags
+    mergeTags,
+    updateSyncConfig,
+    exportBackup,
+    pushToCloud
   } = useCollection();
   const [newCategoryName, setNewCategoryName] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState(categories[0]?.id ?? "");
@@ -28,7 +33,7 @@ export function SettingsScreen() {
   const [newTagName, setNewTagName] = useState("");
   const [sourceTagId, setSourceTagId] = useState("");
   const [targetTagId, setTargetTagId] = useState("");
-  const [openSection, setOpenSection] = useState<"categories" | "fields" | "tags" | null>("categories");
+  const [openSection, setOpenSection] = useState<"storage" | "categories" | "fields" | "tags" | null>("categories");
   const [expandedFieldId, setExpandedFieldId] = useState<string | null>(null);
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
 
@@ -96,8 +101,13 @@ export function SettingsScreen() {
     setDraggingFieldId(null);
   };
 
-  const toggleSection = (section: "categories" | "fields" | "tags") => {
+  const toggleSection = (section: "storage" | "categories" | "fields" | "tags") => {
     setOpenSection((current) => (current === section ? null : section));
+  };
+
+  const updateAutoSyncInterval = (value: string) => {
+    const interval = Number(value);
+    updateSyncConfig({ autoSyncIntervalMinutes: Number.isFinite(interval) ? Math.max(1, interval) : 10 });
   };
 
   return (
@@ -271,6 +281,56 @@ export function SettingsScreen() {
                     <Button className="compact-button" label="Delete" onClick={() => confirmDelete("Delete this tag?", () => deleteTag(tag.id))} tone="danger" />
                   </div>
                 ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="accordion">
+            <button className="accordion-header" onClick={() => toggleSection("storage")} type="button">
+              <div className="accordion-title">
+                <strong>Storage & sync</strong>
+              </div>
+              <span className="muted">{openSection === "storage" ? "Hide" : "Show"}</span>
+            </button>
+            {openSection === "storage" ? (
+              <div className="accordion-body dense-stack">
+                <div className="form-grid compact">
+                  <div className="field">
+                    <label>Last backup</label>
+                    <div className="readonly-field">
+                      {storageStatus.lastSyncAction === "push" && storageStatus.lastSyncedAt
+                        ? new Date(storageStatus.lastSyncedAt).toLocaleString()
+                        : "Not backed up yet"}
+                    </div>
+                  </div>
+                  <Field
+                    label="Auto backup interval (minutes)"
+                    onChange={updateAutoSyncInterval}
+                    placeholder="10"
+                    type="number"
+                    value={String(syncConfig.autoSyncIntervalMinutes ?? 10)}
+                  />
+                  <label className="checkbox-field">
+                    <input checked={syncConfig.autoSync} onChange={(event) => updateSyncConfig({ autoSync: event.target.checked })} type="checkbox" />
+                    <span>Auto backup when this page is open and online</span>
+                  </label>
+                </div>
+
+                <div className="settings-note">
+                  Auto backup currently means: while this webpage is open, if you are online and there are unsynced local changes, the app will automatically push them to Supabase at the interval above.
+                </div>
+
+                {storageStatus.lastError ? <div className="sync-error">{storageStatus.lastError}</div> : null}
+
+                <Row>
+                  <Button
+                    className="compact-button"
+                    label={storageStatus.syncInFlight && storageStatus.syncAction === "push" ? "Backing up..." : "Push to cloud"}
+                    onClick={() => void pushToCloud()}
+                    tone="quiet"
+                  />
+                  <Button className="compact-button" label="Export backup" onClick={exportBackup} tone="quiet" />
+                </Row>
               </div>
             ) : null}
           </div>

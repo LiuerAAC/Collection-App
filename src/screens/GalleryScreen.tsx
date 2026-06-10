@@ -3,6 +3,10 @@ import { Button, Card, EmptyState, IconButton, Row, Screen, Stack } from "../com
 import { useCollection } from "../store/collectionStore";
 import { Album } from "../types";
 
+function displayImageUrl(entry: { imageUrl?: string; localPreviewUrl?: string }) {
+  return String(entry.localPreviewUrl || entry.imageUrl || "");
+}
+
 const layoutMap = {
   "2x2": { rows: 2, columns: 2 },
   "3x3": { rows: 3, columns: 3 },
@@ -277,9 +281,9 @@ export function GalleryScreen() {
                   <div className="slot-shell" key={`${slot.row}-${slot.column}`}>
                     <button className="slot image-slot" onClick={() => setPickerSlot({ row: slot.row, column: slot.column })} type="button">
                       {slot.photo?.imageUrl ? (
-                        <img alt={slot.photo.title ?? "Photo"} src={slot.photo.imageUrl} />
+                        <img alt={slot.photo.title ?? "Photo"} src={displayImageUrl(slot.photo)} />
                       ) : slot.item?.imageUrl ? (
-                        <img alt={slot.item.name} src={slot.item.imageUrl} />
+                        <img alt={slot.item.name} src={displayImageUrl(slot.item)} />
                       ) : (
                         <span className="slot-empty-dot" aria-hidden="true" />
                       )}
@@ -325,9 +329,9 @@ export function GalleryScreen() {
             <div className="slider-stage-shell">
               <button className="slider-stage" onClick={() => setPickerSlot({ row: sliderIndex, column: 0 })} type="button">
                 {activeSliderPhoto?.imageUrl ? (
-                  <img alt={activeSliderPhoto.title ?? "Photo"} src={activeSliderPhoto.imageUrl} />
+                  <img alt={activeSliderPhoto.title ?? "Photo"} src={displayImageUrl(activeSliderPhoto)} />
                 ) : activeSliderItem?.imageUrl ? (
-                  <img alt={activeSliderItem.name} src={activeSliderItem.imageUrl} />
+                  <img alt={activeSliderItem.name} src={displayImageUrl(activeSliderItem)} />
                 ) : (
                   <div className="image-tile-placeholder">Tap to add</div>
                 )}
@@ -387,7 +391,7 @@ export function GalleryScreen() {
                       type="button"
                     >
                       <div className="picker-thumb">
-                        {item.imageUrl ? <img alt={item.name} src={item.imageUrl} /> : <div className="image-tile-placeholder">No image</div>}
+                        {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <div className="image-tile-placeholder">No image</div>}
                       </div>
                       <span>{item.name}</span>
                     </button>
@@ -403,7 +407,7 @@ export function GalleryScreen() {
                       type="button"
                     >
                       <div className="picker-thumb">
-                        <img alt={photo.title ?? "Photo"} src={photo.imageUrl} />
+                        <img alt={photo.title ?? "Photo"} src={displayImageUrl(photo)} />
                       </div>
                       <span>{photo.title || "Photo"}</span>
                     </button>
@@ -423,7 +427,7 @@ export function GalleryScreen() {
             {infoItem ? (
               <div className="stack">
                 <div className="detail-image compact-photo">
-                  {infoItem.imageUrl ? <img alt={infoItem.name} src={infoItem.imageUrl} /> : <div className="image-tile-placeholder">No image</div>}
+                  {displayImageUrl(infoItem) ? <img alt={infoItem.name} src={displayImageUrl(infoItem)} /> : <div className="image-tile-placeholder">No image</div>}
                 </div>
                 <strong>{infoItem.name}</strong>
                 <span className="muted">{infoItem.storageLocation || "Storage not set"}</span>
@@ -432,7 +436,7 @@ export function GalleryScreen() {
             {infoPhoto ? (
               <div className="stack">
                 <div className="detail-image compact-photo">
-                  <img alt={infoPhoto.title ?? "Photo"} src={infoPhoto.imageUrl} />
+                  <img alt={infoPhoto.title ?? "Photo"} src={displayImageUrl(infoPhoto)} />
                 </div>
                 <div className="linked-thumb-row">
                   {infoPhotoItems.map((item, index) => (
@@ -443,7 +447,7 @@ export function GalleryScreen() {
                       type="button"
                     >
                       <span className="linked-thumb-order">{index + 1}</span>
-                      {item.imageUrl ? <img alt={item.name} src={item.imageUrl} /> : <span className="linked-thumb-fallback">{item.name.slice(0, 1)}</span>}
+                      {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <span className="linked-thumb-fallback">{item.name.slice(0, 1)}</span>}
                     </button>
                   ))}
                 </div>
@@ -451,7 +455,7 @@ export function GalleryScreen() {
                   <div className="linked-item-card">
                     <div className="row">
                       <div className="thumb">
-                        {activeInfoPhotoItem.imageUrl ? <img alt={activeInfoPhotoItem.name} src={activeInfoPhotoItem.imageUrl} /> : <div className="image-tile-placeholder">No image</div>}
+                        {displayImageUrl(activeInfoPhotoItem) ? <img alt={activeInfoPhotoItem.name} src={displayImageUrl(activeInfoPhotoItem)} /> : <div className="image-tile-placeholder">No image</div>}
                       </div>
                       <div className="stack">
                         <strong>{activeInfoPhotoItem.name}</strong>

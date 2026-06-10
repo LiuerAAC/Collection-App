@@ -5,7 +5,7 @@ import { ChecklistEntry, ChecklistList, ChecklistStatus, CollectionItem, CustomF
 
 type WarehouseView = "library" | "create" | "orders" | "photo" | "checklist";
 type OrderSort = "latest" | "highest";
-type DraftPhoto = Pick<PhotoShot, "title" | "imageUrl" | "itemIds">;
+type DraftPhoto = Pick<PhotoShot, "title" | "imageUrl" | "localPreviewUrl" | "itemIds" | "imageAssetId">;
 type ChecklistFilter = ChecklistStatus;
 
 const ITEM_PAGE_SIZE = 60;
@@ -35,6 +35,7 @@ const emptyDraft: DraftItem = {
   status: "owned",
   description: "",
   imageUrl: "",
+  localPreviewUrl: "",
   storageLocation: "",
   tagIds: ["tag-football"],
   customValues: {},
@@ -62,22 +63,18 @@ const emptyOrderDraft: DraftPurchase = {
 const emptyPhotoDraft: DraftPhoto = {
   title: "",
   imageUrl: "",
+  localPreviewUrl: "",
   itemIds: []
 };
+
+function displayImageUrl(entry: { imageUrl?: string; localPreviewUrl?: string }) {
+  return String(entry.localPreviewUrl || entry.imageUrl || "");
+}
 
 const emptyChecklistDraft = {
   seriesName: "",
   rawEntries: ""
 };
-
-function toDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("file read failed"));
-    reader.readAsDataURL(file);
-  });
-}
 
 function buildItemName(categoryName: string, values: DraftItem["customValues"]) {
   const player = String(values["field-card-player"] ?? "").trim();
@@ -86,6 +83,34 @@ function buildItemName(categoryName: string, values: DraftItem["customValues"]) 
   const number = String(values["field-card-number"] ?? "").trim();
   const parts = [player, series, number, special].filter(Boolean);
   return parts.length > 0 ? parts.join(" / ") : `${categoryName} Item`;
+}
+
+function buildUniqueItemName(baseName: string, existingItems: CollectionItem[], excludeItemId?: string) {
+  const usedNames = new Set(
+    existingItems
+      .filter((item) => item.id !== excludeItemId)
+      .map((item) => item.name.trim())
+      .filter(Boolean)
+  );
+  if (!usedNames.has(baseName)) {
+    return baseName;
+  }
+
+  let suffix = 2;
+  while (usedNames.has(`${baseName} ${suffix}`)) {
+    suffix += 1;
+  }
+  return `${baseName} ${suffix}`;
+}
+
+function itemListMeta(item: CollectionItem) {
+  if (item.storageLocation?.trim()) {
+    return item.storageLocation.trim();
+  }
+  if (typeof item.price === "number" && Number.isFinite(item.price)) {
+    return `¥${item.price}`;
+  }
+  return item.id.slice(-6);
 }
 
 function parseCsv(text: string) {
@@ -188,7 +213,8 @@ export function WarehouseScreen() {
     addChecklist,
     updateChecklist,
     deleteChecklist,
-    setChecklistEntryItems
+    setChecklistEntryItems,
+    stageLocalImage
   } = useCollection();
   const [view, setView] = useState<WarehouseView>("library");
   const [draft, setDraft] = useState<DraftItem>(emptyDraft);
@@ -340,6 +366,8 @@ export function WarehouseScreen() {
     setPhotoDraft({
       title: selectedPhoto.title ?? "",
       imageUrl: selectedPhoto.imageUrl,
+      localPreviewUrl: selectedPhoto.localPreviewUrl ?? "",
+      imageAssetId: selectedPhoto.imageAssetId,
       itemIds: selectedPhoto.itemIds
     });
     setSelectedLinkedItemId(selectedPhoto.itemIds[0] ?? null);
@@ -421,29 +449,33 @@ export function WarehouseScreen() {
   const onAddImage = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const imageUrl = await toDataUrl(file);
-    setDraft((current) => ({ ...current, imageUrl }));
+    const staged = await stageLocalImage("item", file);
+    setDraft((current) => ({ ...current, imageUrl: staged.previewUrl, localPreviewUrl: staged.previewUrl, imageAssetId: staged.assetId }));
+    event.target.value = "";
   };
 
   const onEditImage = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !selectedItemId) return;
-    const imageUrl = await toDataUrl(file);
-    setEditDraft((current) => ({ ...current, imageUrl }));
+    const staged = await stageLocalImage("item", file);
+    setEditDraft((current) => ({ ...current, imageUrl: staged.previewUrl, localPreviewUrl: staged.previewUrl, imageAssetId: staged.assetId }));
+    event.target.value = "";
   };
 
   const onAddPhotoImage = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const imageUrl = await toDataUrl(file);
-    setPhotoDraft((current) => ({ ...current, imageUrl }));
+    const staged = await stageLocalImage("photo", file);
+    setPhotoDraft((current) => ({ ...current, imageUrl: staged.previewUrl, localPreviewUrl: staged.previewUrl, imageAssetId: staged.assetId }));
+    event.target.value = "";
   };
 
   const onEditPhotoImage = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const imageUrl = await toDataUrl(file);
-    setPhotoDraft((current) => ({ ...current, imageUrl }));
+    const staged = await stageLocalImage("photo", file);
+    setPhotoDraft((current) => ({ ...current, imageUrl: staged.previewUrl, localPreviewUrl: staged.previewUrl, imageAssetId: staged.assetId }));
+    event.target.value = "";
   };
 
   const importOrdersFromCsv = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -491,7 +523,7 @@ export function WarehouseScreen() {
 
   const submitItem = (event: FormEvent) => {
     event.preventDefault();
-    const name = buildItemName(currentCategory?.name ?? "Item", draft.customValues);
+    const name = buildUniqueItemName(buildItemName(currentCategory?.name ?? "Item", draft.customValues), items);
     addItem({
       ...draft,
       categoryId: currentCategoryId,
@@ -505,9 +537,13 @@ export function WarehouseScreen() {
     if (!selectedItemId) return;
     updateItem(selectedItemId, {
       ...editDraft,
-      name: buildItemName(
-        categories.find((category) => category.id === (editDraft.categoryId ?? selectedItem?.categoryId))?.name ?? "Item",
-        (editDraft.customValues as CollectionItem["customValues"]) ?? {}
+      name: buildUniqueItemName(
+        buildItemName(
+          categories.find((category) => category.id === (editDraft.categoryId ?? selectedItem?.categoryId))?.name ?? "Item",
+          (editDraft.customValues as CollectionItem["customValues"]) ?? {}
+        ),
+        items,
+        selectedItemId
       )
     });
     closeItemModal();
@@ -570,6 +606,8 @@ export function WarehouseScreen() {
     if (!photoDraft.imageUrl.trim()) return;
     const nextId = addPhotoShot({
       imageUrl: photoDraft.imageUrl,
+      localPreviewUrl: photoDraft.localPreviewUrl,
+      imageAssetId: photoDraft.imageAssetId,
       title: (photoDraft.title ?? "").trim() || `Photo ${photoShots.length + 1}`,
       itemIds: photoDraft.itemIds
     });
@@ -733,7 +771,7 @@ export function WarehouseScreen() {
             <div className="image-grid compact-grid">
               {pagedItems.map((item) => (
                 <button className="image-tile small" key={item.id} onClick={() => setSelectedItemId(item.id)} type="button">
-                  {item.imageUrl ? <img alt={item.name} src={item.imageUrl} /> : <div className="image-tile-placeholder">No image</div>}
+                  {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <div className="image-tile-placeholder">No image</div>}
                 </button>
               ))}
             </div>
@@ -760,7 +798,7 @@ export function WarehouseScreen() {
                   <div className="detail-hero-layout">
                     <button className="detail-image compact-photo clickable-image detail-photo-large" onClick={() => editImageInputRef.current?.click()} type="button">
                       {String(editDraft.imageUrl ?? selectedItem.imageUrl ?? "").trim() ? (
-                        <img alt={selectedItem.name} src={String(editDraft.imageUrl ?? selectedItem.imageUrl)} />
+                        <img alt={selectedItem.name} src={displayImageUrl({ imageUrl: String(editDraft.imageUrl ?? selectedItem.imageUrl ?? ""), localPreviewUrl: String(editDraft.localPreviewUrl ?? selectedItem.localPreviewUrl ?? "") })} />
                       ) : (
                         <div className="image-tile-placeholder">No image</div>
                       )}
@@ -939,7 +977,7 @@ export function WarehouseScreen() {
 
                 <div className="integrated-form">
                   <button className="detail-image uploader-tile compact-photo clickable-image" onClick={() => addImageInputRef.current?.click()} type="button">
-                    {draft.imageUrl ? <img alt="Item preview" src={draft.imageUrl} /> : <div className="image-tile-placeholder">Add image</div>}
+                    {displayImageUrl(draft) ? <img alt="Item preview" src={displayImageUrl(draft)} /> : <div className="image-tile-placeholder">Add image</div>}
                     <input accept="image/*" capture="environment" hidden onChange={onAddImage} ref={addImageInputRef} type="file" />
                   </button>
 
@@ -1205,7 +1243,7 @@ export function WarehouseScreen() {
                                 <div className="linked-mini-row">
                                   {linkedItems.map((item) => (
                                     <div className="linked-mini-card" key={item.id}>
-                                      {item.imageUrl ? <img alt={item.name} src={item.imageUrl} /> : <span>{item.name.slice(0, 1)}</span>}
+                                      {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <span>{item.name.slice(0, 1)}</span>}
                                     </div>
                                   ))}
                                 </div>
@@ -1354,7 +1392,7 @@ export function WarehouseScreen() {
                         >
                           <div className="picker-card-shell">
                             <div className="picker-thumb">
-                              {item.imageUrl ? <img alt={item.name} src={item.imageUrl} /> : <div className="image-tile-placeholder">No image</div>}
+                              {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <div className="image-tile-placeholder">No image</div>}
                             </div>
                           </div>
                           <strong>{item.name}</strong>
@@ -1391,7 +1429,7 @@ export function WarehouseScreen() {
             <div className="image-grid photo-grid">
               {pagedPhotos.map((photo) => (
                 <button className="image-tile photo-tile" key={photo.id} onClick={() => openPhotoDetail(photo.id)} type="button">
-                  <img alt={photo.title ?? "Photo"} src={photo.imageUrl} />
+                  <img alt={photo.title ?? "Photo"} src={displayImageUrl(photo)} />
                 </button>
               ))}
             </div>
@@ -1417,7 +1455,7 @@ export function WarehouseScreen() {
                 <form onSubmit={submitPhoto}>
                   <div className="detail-hero-layout photo-detail-layout">
                     <button className="detail-image compact-photo clickable-image detail-photo-large" onClick={() => addPhotoInputRef.current?.click()} type="button">
-                      {photoDraft.imageUrl ? <img alt="Photo preview" src={photoDraft.imageUrl} /> : <div className="image-tile-placeholder">Add photo</div>}
+                      {displayImageUrl(photoDraft) ? <img alt="Photo preview" src={displayImageUrl(photoDraft)} /> : <div className="image-tile-placeholder">Add photo</div>}
                     </button>
                     <div className="detail-tags-panel">
                       <Field label="Title" value={photoDraft.title ?? ""} onChange={(value) => setPhotoDraft((current) => ({ ...current, title: value }))} placeholder="Match day shot" />
@@ -1444,7 +1482,10 @@ export function WarehouseScreen() {
                                 }
                                 type="button"
                               >
-                                <span>{item.name}</span>
+                                <span>
+                                  {item.name}
+                                  <span className="muted list-row-meta">{itemListMeta(item)}</span>
+                                </span>
                                 <span className="muted">{active ? "Linked" : "Add"}</span>
                               </button>
                             );
@@ -1472,7 +1513,7 @@ export function WarehouseScreen() {
                 <form onSubmit={submitPhotoUpdate}>
                   <div className="detail-hero-layout photo-detail-layout">
                     <button className="detail-image compact-photo clickable-image detail-photo-large" onClick={() => editPhotoInputRef.current?.click()} type="button">
-                      <img alt={selectedPhoto.title ?? "Photo"} src={photoDraft.imageUrl || selectedPhoto.imageUrl} />
+                      <img alt={selectedPhoto.title ?? "Photo"} src={displayImageUrl({ imageUrl: photoDraft.imageUrl || selectedPhoto.imageUrl, localPreviewUrl: photoDraft.localPreviewUrl || selectedPhoto.localPreviewUrl })} />
                     </button>
                     <div className="detail-tags-panel">
                       <div className="field">
@@ -1486,7 +1527,7 @@ export function WarehouseScreen() {
                               type="button"
                             >
                               <span className="linked-thumb-order">{index + 1}</span>
-                              {item.imageUrl ? <img alt={item.name} src={item.imageUrl} /> : <span className="linked-thumb-fallback">{item.name.slice(0, 1)}</span>}
+                              {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <span className="linked-thumb-fallback">{item.name.slice(0, 1)}</span>}
                             </button>
                           ))}
                           <button className="tag-plus-button" onClick={() => setShowPhotoLinkPicker((value) => !value)} title="Link cards" type="button">
@@ -1516,7 +1557,10 @@ export function WarehouseScreen() {
                                   }
                                   type="button"
                                 >
-                                  <span>{item.name}</span>
+                                  <span>
+                                    {item.name}
+                                    <span className="muted list-row-meta">{itemListMeta(item)}</span>
+                                  </span>
                                   <span className="muted">{active ? "Linked" : "Add"}</span>
                                 </button>
                               );
@@ -1530,7 +1574,7 @@ export function WarehouseScreen() {
                         <div className="linked-item-card">
                           <div className="row">
                             <div className="thumb">
-                              {selectedLinkedItem.imageUrl ? <img alt={selectedLinkedItem.name} src={selectedLinkedItem.imageUrl} /> : <div className="image-tile-placeholder">No image</div>}
+                              {displayImageUrl(selectedLinkedItem) ? <img alt={selectedLinkedItem.name} src={displayImageUrl(selectedLinkedItem)} /> : <div className="image-tile-placeholder">No image</div>}
                             </div>
                             <div className="stack">
                               <strong>{selectedLinkedItem.name}</strong>

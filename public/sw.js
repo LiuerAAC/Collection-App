@@ -18,6 +18,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin || requestUrl.pathname.startsWith("/rest/") || requestUrl.pathname.startsWith("/auth/")) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) {
@@ -34,4 +39,3 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
-

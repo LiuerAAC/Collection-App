@@ -1,20 +1,29 @@
-import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from "react";
-import { defaultCategories, defaultFields, defaultTags } from "../data/templates";
-import { seedAlbumSlots, seedAlbums, seedChecklists, seedDigitalAssets, seedItems, seedPhotoShots, seedPurchases, seedSaleRecords } from "../data/seed";
+import React, { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "../auth/AuthProvider";
+import { supabaseRuntimeConfig } from "../config";
+import { defaultCategories } from "../data/templates";
+import { pullSnapshotFromSupabase, prepareSnapshotForCloud, pushSnapshotToSupabase, uploadPendingAssets } from "../storage/cloudSync";
+import { savePendingAsset } from "../storage/localAssets";
+import { createDefaultSyncConfig, createSeedSnapshot, loadLocalEnvelope, saveLocalEnvelope } from "../storage/persistence";
 import {
   Album,
   AlbumSlot,
+  AppStateSnapshot,
   Category,
   ChecklistList,
+  CloudSyncConfig,
   CollectionItem,
   CustomField,
   DigitalAsset,
   DraftItem,
   DraftPurchase,
   DraftSaleRecord,
+  PendingAssetRecord,
   PhotoShot,
   Purchase,
   SaleRecord,
+  StorageStatus,
+  SyncQueueEntry,
   Tag
 } from "../types";
 
@@ -30,7 +39,9 @@ type CollectionState = {
   checklists: ChecklistList[];
   albums: Album[];
   albumSlots: AlbumSlot[];
-  storageMode: "seed" | "local";
+  storageStatus: StorageStatus;
+  syncConfig: CloudSyncConfig;
+  storageScopeKey: string;
   addItem: (draft: DraftItem) => string;
   updateItem: (id: string, patch: Partial<CollectionItem>) => void;
   deleteItem: (id: string) => void;
@@ -62,13 +73,53 @@ type CollectionState = {
   mergeTags: (sourceTagId: string, targetTagId: string) => void;
   updatePurchase: (id: string, patch: Partial<Purchase>) => void;
   deletePurchase: (id: string) => void;
+  updateSyncConfig: (patch: Partial<CloudSyncConfig>) => void;
+  stageLocalImage: (target: "item" | "photo", file: File) => Promise<{ assetId: string; previewUrl: string }>;
+  exportBackup: () => void;
+  pushToCloud: () => Promise<void>;
+  pullFromCloud: () => Promise<void>;
 };
 
 const CollectionContext = createContext<CollectionState | undefined>(undefined);
-const STORAGE_KEY = "collection-app-v0-1";
-const ORDER_RESET_MIGRATION_KEY = "collection-app-order-reset-v0-2";
 
 const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+const minutesToMilliseconds = (minutes: number) => Math.max(1, minutes || 10) * 60 * 1000;
+
+function fileToDataUrl(file: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("file read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function makePreviewBlob(file: File) {
+  const imageBitmap = await createImageBitmap(file);
+  const maxWidth = 480;
+  const scale = Math.min(1, maxWidth / imageBitmap.width);
+  const width = Math.max(1, Math.round(imageBitmap.width * scale));
+  const height = Math.max(1, Math.round(imageBitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("preview canvas unavailable");
+  }
+  context.drawImage(imageBitmap, 0, 0, width, height);
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((nextBlob) => {
+      if (nextBlob) {
+        resolve(nextBlob);
+        return;
+      }
+      reject(new Error("preview generation failed"));
+    }, "image/jpeg", 0.82);
+  });
+  imageBitmap.close();
+  return blob;
+}
 const computePurchaseTotal = (purchase: Pick<Purchase, "kind" | "itemAmount" | "shippingAmount" | "feeAmount">) =>
   purchase.kind === "sell"
     ? Number(purchase.itemAmount || 0) - Number(purchase.shippingAmount || 0) - Number(purchase.feeAmount || 0)
@@ -106,102 +157,325 @@ const normalizeChecklistStatus = (checklist: ChecklistList): ChecklistList => {
   };
 };
 
-type PersistedState = Pick<
-  CollectionState,
-  "categories" | "fields" | "tags" | "items" | "purchases" | "saleRecords" | "digitalAssets" | "albums" | "albumSlots"
-  | "photoShots" | "checklists"
->;
-
-function readPersistedState(): PersistedState | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as PersistedState;
-    const shouldResetOrders = window.localStorage.getItem(ORDER_RESET_MIGRATION_KEY) !== "done";
-
-    if (!shouldResetOrders) {
-      return parsed;
-    }
-
-    const nextState: PersistedState = {
-      ...parsed,
-      purchases: [],
-      saleRecords: [],
-      items: parsed.items.map((item) => ({
-        ...item,
-        purchaseId: undefined,
-        saleRecordId: undefined,
-        purchaseDate: undefined,
-        purchaseAmount: undefined
-      }))
-    };
-
-    return nextState;
-  } catch {
-    return null;
-  }
-}
-
 export function CollectionProvider({ children }: PropsWithChildren) {
-  const persisted = readPersistedState();
+  const { session, user } = useAuth();
+  const seedSnapshot = createSeedSnapshot();
   const fallbackCategoryId = defaultCategories[0]?.id ?? "cat-card";
-  const [categories, setCategories] = useState(persisted?.categories ?? defaultCategories);
-  const [fields, setFields] = useState(persisted?.fields ?? defaultFields);
-  const [tags, setTags] = useState(persisted?.tags ?? defaultTags);
-  const [items, setItems] = useState(persisted?.items ?? seedItems);
-  const [purchases, setPurchases] = useState((persisted?.purchases ?? seedPurchases).map((purchase) => normalizePurchase(purchase, fallbackCategoryId)));
-  const [saleRecords, setSaleRecords] = useState(persisted?.saleRecords ?? seedSaleRecords);
-  const [digitalAssets] = useState(persisted?.digitalAssets ?? seedDigitalAssets);
-  const [photoShots, setPhotoShots] = useState(persisted?.photoShots ?? seedPhotoShots);
-  const [checklists, setChecklists] = useState((persisted?.checklists ?? seedChecklists).map(normalizeChecklistStatus));
-  const [albums, setAlbums] = useState(persisted?.albums ?? seedAlbums);
-  const [albumSlots, setAlbumSlots] = useState(persisted?.albumSlots ?? seedAlbumSlots);
+  const storageScopeKey = user?.id ?? "guest";
+  const [categories, setCategories] = useState(seedSnapshot.categories);
+  const [fields, setFields] = useState(seedSnapshot.fields);
+  const [tags, setTags] = useState(seedSnapshot.tags);
+  const [items, setItems] = useState(seedSnapshot.items);
+  const [purchases, setPurchases] = useState(seedSnapshot.purchases.map((purchase) => normalizePurchase(purchase, fallbackCategoryId)));
+  const [saleRecords, setSaleRecords] = useState(seedSnapshot.saleRecords);
+  const [digitalAssets, setDigitalAssets] = useState(seedSnapshot.digitalAssets);
+  const [photoShots, setPhotoShots] = useState(seedSnapshot.photoShots);
+  const [checklists, setChecklists] = useState(seedSnapshot.checklists.map(normalizeChecklistStatus));
+  const [albums, setAlbums] = useState(seedSnapshot.albums);
+  const [albumSlots, setAlbumSlots] = useState(seedSnapshot.albumSlots);
+  const [syncConfig, setSyncConfig] = useState(createDefaultSyncConfig());
+  const [syncQueue, setSyncQueue] = useState<SyncQueueEntry[]>([]);
+  const [storageStatus, setStorageStatus] = useState<StorageStatus>({
+    ready: false,
+    storageBackend: "indexeddb",
+    storageMode: "seed",
+    online: typeof navigator !== "undefined" ? navigator.onLine : true,
+    pendingSyncCount: 0,
+    syncInFlight: false
+  });
+  const snapshotChangeGuard = useRef(true);
+  const createManagedSyncConfig = () => {
+    const next = createDefaultSyncConfig();
+    if (supabaseRuntimeConfig.url && supabaseRuntimeConfig.anonKey) {
+      next.provider = "supabase";
+      next.supabaseUrl = supabaseRuntimeConfig.url;
+      next.supabaseAnonKey = supabaseRuntimeConfig.anonKey;
+      next.supabaseAssetBucket = supabaseRuntimeConfig.storageBucket;
+      next.assetProvider = "supabase_storage";
+    }
+    if (user?.id) {
+      next.datasetId = user.id;
+    }
+    return next;
+  };
+
+  const applySnapshot = (snapshot: AppStateSnapshot) => {
+    setCategories(snapshot.categories);
+    setFields(snapshot.fields);
+    setTags(snapshot.tags);
+    setItems(snapshot.items);
+    setPurchases(snapshot.purchases.map((purchase) => normalizePurchase(purchase, fallbackCategoryId)));
+    setSaleRecords(snapshot.saleRecords);
+    setDigitalAssets(snapshot.digitalAssets);
+    setPhotoShots(snapshot.photoShots);
+    setChecklists(snapshot.checklists.map(normalizeChecklistStatus));
+    setAlbums(snapshot.albums);
+    setAlbumSlots(snapshot.albumSlots);
+  };
 
   useEffect(() => {
-    const shouldResetOrders = window.localStorage.getItem(ORDER_RESET_MIGRATION_KEY) !== "done";
-    if (!shouldResetOrders) {
+    let cancelled = false;
+
+    snapshotChangeGuard.current = true;
+
+    loadLocalEnvelope(storageScopeKey).then((envelope) => {
+      if (cancelled) return;
+      snapshotChangeGuard.current = true;
+      applySnapshot(envelope.snapshot);
+      setSyncConfig({
+        ...envelope.syncConfig,
+        ...createManagedSyncConfig()
+      });
+      setSyncQueue(envelope.syncQueue);
+      setStorageStatus((current) => ({
+        ...current,
+        ready: true,
+        storageMode: envelope.meta.storageMode,
+        pendingSyncCount: envelope.syncQueue.length
+      }));
+    }).catch(() => {
+      if (cancelled) return;
+      setStorageStatus((current) => ({
+        ...current,
+        ready: true,
+        storageMode: "seed",
+        lastError: "Local storage initialization failed."
+      }));
+    });
+
+    const onNetworkChange = () => {
+      setStorageStatus((current) => ({ ...current, online: navigator.onLine }));
+    };
+
+    window.addEventListener("online", onNetworkChange);
+    window.addEventListener("offline", onNetworkChange);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", onNetworkChange);
+      window.removeEventListener("offline", onNetworkChange);
+    };
+  }, [storageScopeKey]);
+
+  const snapshot = useMemo<AppStateSnapshot>(() => ({
+    schemaVersion: 1,
+    updatedAt: new Date().toISOString(),
+    categories,
+    fields,
+    tags,
+    items,
+    purchases,
+    saleRecords,
+    digitalAssets,
+    photoShots,
+    checklists,
+    albums,
+    albumSlots
+  }), [albumSlots, albums, categories, checklists, digitalAssets, fields, items, photoShots, purchases, saleRecords, tags]);
+
+  useEffect(() => {
+    if (!storageStatus.ready) {
       return;
     }
 
-    setPurchases([]);
-    setSaleRecords([]);
-    setItems((current) =>
-      current.map((item) => ({
-        ...item,
-        purchaseId: undefined,
-        saleRecordId: undefined,
-        purchaseDate: undefined,
-        purchaseAmount: undefined,
-        updatedAt: new Date().toISOString()
-      }))
-    );
-    window.localStorage.setItem(ORDER_RESET_MIGRATION_KEY, "done");
-  }, []);
+    saveLocalEnvelope(storageScopeKey, {
+      snapshot,
+      syncConfig,
+      syncQueue,
+      meta: {
+        savedAt: new Date().toISOString(),
+        storageMode: storageStatus.storageMode === "seed" ? "local" : storageStatus.storageMode
+      }
+    }).catch(() => undefined);
+  }, [snapshot, storageScopeKey, storageStatus.ready, storageStatus.storageMode, syncConfig, syncQueue]);
 
   useEffect(() => {
-    const payload: PersistedState = {
-      categories,
-      fields,
-      tags,
-      items,
-      purchases,
-      saleRecords,
-      digitalAssets,
-      photoShots,
-      checklists,
-      albums,
-      albumSlots
-    };
+    if (!storageStatus.ready) {
+      return;
+    }
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [albumSlots, albums, categories, checklists, digitalAssets, fields, items, photoShots, purchases, saleRecords, tags]);
+    if (snapshotChangeGuard.current) {
+      snapshotChangeGuard.current = false;
+      return;
+    }
+
+    setSyncQueue((current) =>
+      current.length > 0
+        ? current
+        : [
+            {
+              id: makeId("sync"),
+              type: "push",
+              reason: "local-change",
+              createdAt: new Date().toISOString(),
+              tries: 0
+            }
+          ]
+    );
+  }, [snapshot, storageStatus.ready]);
+
+  useEffect(() => {
+    setStorageStatus((current) => ({
+      ...current,
+      pendingSyncCount: syncQueue.length
+    }));
+  }, [syncQueue.length]);
+
+  const pushToCloud = async () => {
+    if (syncConfig.provider !== "supabase") {
+      setStorageStatus((current) => ({ ...current, lastError: "Choose Supabase before syncing." }));
+      return;
+    }
+    if (!session?.accessToken) {
+      setStorageStatus((current) => ({ ...current, lastError: "Sign in before syncing with Supabase." }));
+      return;
+    }
+
+    setStorageStatus((current) => ({ ...current, syncInFlight: true, syncAction: "push", lastError: undefined }));
+    try {
+      const withUploadedAssets = await uploadPendingAssets(syncConfig, snapshot, storageScopeKey, session.accessToken);
+      const preparedSnapshot = await prepareSnapshotForCloud(syncConfig, withUploadedAssets, session.accessToken);
+      const syncedAt = await pushSnapshotToSupabase(syncConfig, preparedSnapshot, session.accessToken);
+      snapshotChangeGuard.current = true;
+      applySnapshot(preparedSnapshot);
+      setSyncQueue([]);
+      setStorageStatus((current) => ({
+        ...current,
+        syncInFlight: false,
+        syncAction: undefined,
+        lastSyncAction: "push",
+        lastSyncedAt: syncedAt,
+        lastError: undefined
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Cloud sync failed.";
+      setSyncQueue((current) =>
+        current.map((entry) =>
+          entry.type === "push"
+            ? {
+                ...entry,
+                tries: entry.tries + 1,
+                lastError: message
+              }
+            : entry
+        )
+      );
+      setStorageStatus((current) => ({
+        ...current,
+        syncInFlight: false,
+        syncAction: undefined,
+        lastError: message
+      }));
+    }
+  };
+
+  const pullFromCloud = async () => {
+    if (syncConfig.provider !== "supabase") {
+      setStorageStatus((current) => ({ ...current, lastError: "Choose Supabase before pulling cloud data." }));
+      return;
+    }
+    if (!session?.accessToken) {
+      setStorageStatus((current) => ({ ...current, lastError: "Sign in before pulling cloud data." }));
+      return;
+    }
+
+    setStorageStatus((current) => ({ ...current, syncInFlight: true, syncAction: "pull", lastError: undefined }));
+    try {
+      const remote = await pullSnapshotFromSupabase(syncConfig, session.accessToken);
+      if (!remote) {
+        setStorageStatus((current) => ({
+          ...current,
+          syncInFlight: false,
+          syncAction: undefined,
+          lastError: "No cloud dataset was found yet."
+        }));
+        return;
+      }
+      snapshotChangeGuard.current = true;
+      applySnapshot(remote.payload);
+      setSyncQueue([]);
+      setStorageStatus((current) => ({
+        ...current,
+        syncInFlight: false,
+        syncAction: undefined,
+        lastSyncAction: "pull",
+        lastSyncedAt: remote.updated_at,
+        lastError: undefined
+      }));
+    } catch (error) {
+      setStorageStatus((current) => ({
+        ...current,
+        syncInFlight: false,
+        syncAction: undefined,
+        lastError: error instanceof Error ? error.message : "Cloud pull failed."
+      }));
+    }
+  };
+
+  useEffect(() => {
+    if (!storageStatus.ready || !storageStatus.online || !syncConfig.autoSync || syncConfig.provider !== "supabase" || syncQueue.length === 0 || storageStatus.syncInFlight) {
+      return;
+    }
+    if (!session?.accessToken) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void pushToCloud();
+    }, minutesToMilliseconds(syncConfig.autoSyncIntervalMinutes));
+
+    return () => window.clearTimeout(timer);
+  }, [
+    snapshot,
+    storageStatus.ready,
+    storageStatus.online,
+    storageStatus.syncInFlight,
+    syncConfig,
+    session?.accessToken,
+    syncQueue.length
+  ]);
+
+  const stageLocalImage = async (target: "item" | "photo", file: File) => {
+    let previewUrl = "";
+    try {
+      const previewBlob = await makePreviewBlob(file);
+      previewUrl = await fileToDataUrl(previewBlob);
+    } catch {
+      previewUrl = await fileToDataUrl(file);
+    }
+    const assetId = makeId("asset");
+    const pendingAsset: PendingAssetRecord = {
+      id: assetId,
+      ownerScopeKey: storageScopeKey,
+      target,
+      mimeType: file.type || "image/jpeg",
+      fileName: file.name || `${assetId}.jpg`,
+      blob: file,
+      createdAt: new Date().toISOString()
+    };
+    await savePendingAsset(pendingAsset);
+    return { assetId, previewUrl };
+  };
+
+  const exportBackup = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      scopeKey: storageScopeKey,
+      userEmail: user?.email,
+      snapshot,
+      syncConfig: {
+        ...syncConfig,
+        supabaseAnonKey: undefined
+      }
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `collection-backup-${storageScopeKey}-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   const value = useMemo<CollectionState>(() => ({
     categories,
@@ -215,7 +489,9 @@ export function CollectionProvider({ children }: PropsWithChildren) {
     checklists,
     albums,
     albumSlots,
-    storageMode: persisted ? "local" : "seed",
+    storageStatus,
+    syncConfig,
+    storageScopeKey,
     addItem: (draft) => {
       const id = makeId("item");
       const now = new Date().toISOString();
@@ -519,8 +795,22 @@ export function CollectionProvider({ children }: PropsWithChildren) {
             : item
         )
       );
-    }
-  }), [albumSlots, albums, categories, checklists, digitalAssets, fields, items, persisted, photoShots, purchases, saleRecords, tags]);
+    },
+    updateSyncConfig: (patch) => {
+      setSyncConfig((current) => ({
+        ...current,
+        ...patch,
+        ...(supabaseRuntimeConfig.url ? { provider: "supabase" as const, supabaseUrl: supabaseRuntimeConfig.url } : {}),
+        ...(supabaseRuntimeConfig.anonKey ? { supabaseAnonKey: supabaseRuntimeConfig.anonKey } : {}),
+        ...(supabaseRuntimeConfig.storageBucket ? { supabaseAssetBucket: supabaseRuntimeConfig.storageBucket, assetProvider: "supabase_storage" as const } : {}),
+        ...(user?.id ? { datasetId: user.id } : {})
+      }));
+    },
+    stageLocalImage,
+    exportBackup,
+    pushToCloud,
+    pullFromCloud
+  }), [albumSlots, albums, categories, checklists, digitalAssets, fields, items, photoShots, purchases, saleRecords, tags, storageScopeKey, storageStatus, syncConfig, snapshot, user?.email, user?.id, session?.accessToken]);
 
   return <CollectionContext.Provider value={value}>{children}</CollectionContext.Provider>;
 }

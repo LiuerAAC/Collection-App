@@ -42,6 +42,8 @@ export type DigitalAsset = {
 export type PhotoShot = {
   id: string;
   imageUrl: string;
+  localPreviewUrl?: string;
+  imageAssetId?: string;
   itemIds: string[];
   title?: string;
   createdAt: string;
@@ -72,6 +74,8 @@ export type CollectionItem = {
   status: ItemStatus;
   description?: string;
   imageUrl?: string;
+  localPreviewUrl?: string;
+  imageAssetId?: string;
   tagIds: string[];
   customValues: Record<string, string | number | boolean | string[] | undefined>;
   storageLocation?: string;
@@ -140,7 +144,84 @@ export type AlbumSlot = {
 
 export type AppTab = "warehouse" | "gallery" | "analytics" | "settings";
 
-export type DraftItem = Pick<CollectionItem, "name" | "categoryId" | "status" | "description" | "imageUrl" | "storageLocation"> & {
+export type SyncProvider = "none" | "supabase";
+export type AssetProvider = "embedded" | "supabase_storage" | "cloudflare_worker";
+
+export type CloudSyncConfig = {
+  provider: SyncProvider;
+  datasetId: string;
+  autoSync: boolean;
+  autoSyncIntervalMinutes: number;
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+  supabaseTable?: string;
+  supabaseAssetBucket?: string;
+  assetProvider: AssetProvider;
+  cloudflareUploadUrl?: string;
+};
+
+export type AuthUser = {
+  id: string;
+  email?: string;
+};
+
+export type AuthSession = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  user: AuthUser;
+};
+
+export type PendingAssetRecord = {
+  id: string;
+  ownerScopeKey: string;
+  target: "item" | "photo";
+  mimeType: string;
+  fileName: string;
+  blob: Blob;
+  createdAt: string;
+};
+
+export type SyncQueueEntry = {
+  id: string;
+  type: "push";
+  reason: string;
+  createdAt: string;
+  tries: number;
+  lastError?: string;
+};
+
+export type StorageStatus = {
+  ready: boolean;
+  storageBackend: "indexeddb" | "memory";
+  storageMode: "seed" | "migrated" | "local";
+  online: boolean;
+  pendingSyncCount: number;
+  syncInFlight: boolean;
+  syncAction?: "push" | "pull";
+  lastSyncAction?: "push" | "pull";
+  lastSyncedAt?: string;
+  lastError?: string;
+};
+
+export type AppStateSnapshot = {
+  schemaVersion: number;
+  updatedAt: string;
+  categories: Category[];
+  fields: CustomField[];
+  tags: Tag[];
+  items: CollectionItem[];
+  purchases: Purchase[];
+  saleRecords: SaleRecord[];
+  digitalAssets: DigitalAsset[];
+  photoShots: PhotoShot[];
+  checklists: ChecklistList[];
+  albums: Album[];
+  albumSlots: AlbumSlot[];
+};
+
+export type DraftItem = Pick<CollectionItem, "name" | "categoryId" | "status" | "description" | "imageUrl" | "localPreviewUrl" | "storageLocation"> & {
+  imageAssetId?: string;
   tagIds: string[];
   customValues: CollectionItem["customValues"];
   price?: number;
