@@ -27,6 +27,33 @@ function buildSupabaseUrl(config: CloudSyncConfig, path: string) {
   return `${config.supabaseUrl?.replace(/\/$/, "")}${path}`;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function isTransientFetchError(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return ["failed to fetch", "load failed", "network", "timed out", "timeout"].some((pattern) => message.includes(pattern));
+}
+
+async function fetchWithRetry(input: RequestInfo | URL, init?: RequestInit, attempts = 2) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await fetch(input, init);
+    } catch (error) {
+      lastError = error;
+      if (!isTransientFetchError(error) || attempt === attempts - 1) {
+        break;
+      }
+      await sleep(600 * (attempt + 1));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Network request failed.");
+}
+
 function dataUrlToBlob(dataUrl: string) {
   const [meta, data] = dataUrl.split(",");
   if (!meta || typeof data === "undefined") {
@@ -59,7 +86,7 @@ function dataUrlExtension(dataUrl: string) {
 
 async function uploadBlobToSupabaseStorage(config: CloudSyncConfig, assetPath: string, blob: Blob, accessToken?: string) {
   const bucket = config.supabaseAssetBucket || "collection-assets";
-  const response = await fetch(buildSupabaseUrl(config, `/storage/v1/object/${bucket}/${assetPath}`), {
+  const response = await fetchWithRetry(buildSupabaseUrl(config, `/storage/v1/object/${bucket}/${assetPath}`), {
     method: "POST",
     headers: supabaseHeaders(config, blob.type, accessToken),
     body: blob
@@ -79,7 +106,7 @@ async function uploadToCloudflareWorker(config: CloudSyncConfig, assetPath: stri
   if (!config.cloudflareUploadUrl) {
     throw new Error("Cloudflare upload URL is required.");
   }
-  const response = await fetch(config.cloudflareUploadUrl, {
+  const response = await fetchWithRetry(config.cloudflareUploadUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -179,7 +206,7 @@ function blobExtension(blob: Blob) {
   return "jpg";
 }
 
-async function optimizeImageBlob(blob: Blob, maxWidth = 1280, quality = 0.84) {
+async function optimizeImageBlob(blob: Blob, maxWidth = 1080, quality = 0.78) {
   if (!blob.type.startsWith("image/") || blob.type === "image/svg+xml" || blob.type === "image/gif") {
     return { blob, extension: blobExtension(blob) };
   }
@@ -227,7 +254,8 @@ export async function uploadPendingAssets(
   config: CloudSyncConfig,
   snapshot: AppStateSnapshot,
   ownerScopeKey: string,
-  accessToken?: string
+  accessToken?: string,
+  onProgress?: (completed: number, total: number) => void
 ) {
   if (config.assetProvider !== "supabase_storage") {
     return snapshot;
@@ -259,13 +287,21 @@ export async function uploadPendingAssets(
   }, []);
   const assetMap = new Map<string, PendingAssetRecord>(resolvedEntries);
 
-  const uploadedPaths = new Map<string, string>();
+  const uploadedPaths = new Map<string, { fullUrl: string; thumbUrl?: string }>();
+  let completed = 0;
   for (const [assetId, record] of assetMap) {
     const optimized = await optimizeImageBlob(record.blob);
-    const objectPath = `${config.datasetId}/${record.target}s/${assetId}.${optimized.extension || fileExtension(record)}`;
-    const remoteUrl = await uploadBlobToSupabaseStorage(config, objectPath, optimized.blob, accessToken);
-    uploadedPaths.set(assetId, remoteUrl);
+    const suffix = Date.now();
+    const objectPath = `${config.datasetId}/${record.target}s/${assetId}-${suffix}.${optimized.extension || fileExtension(record)}`;
+    const fullUrl = await uploadBlobToSupabaseStorage(config, objectPath, optimized.blob, accessToken);
+    const thumbSource = record.thumbBlob ?? (await optimizeImageBlob(record.blob, 420, 0.72)).blob;
+    const thumb = await optimizeImageBlob(thumbSource, 420, 0.72);
+    const thumbPath = `${config.datasetId}/${record.target}s/thumbs/${assetId}-${suffix}.${thumb.extension || "jpg"}`;
+    const thumbUrl = await uploadBlobToSupabaseStorage(config, thumbPath, thumb.blob, accessToken);
+    uploadedPaths.set(assetId, { fullUrl, thumbUrl });
     await deletePendingAsset(assetId);
+    completed += 1;
+    onProgress?.(completed, assetMap.size);
   }
 
   return {
@@ -274,7 +310,8 @@ export async function uploadPendingAssets(
       item.imageAssetId && uploadedPaths.has(item.imageAssetId)
         ? {
             ...item,
-            imageUrl: uploadedPaths.get(item.imageAssetId),
+            imageUrl: uploadedPaths.get(item.imageAssetId)?.fullUrl,
+            imageThumbUrl: uploadedPaths.get(item.imageAssetId)?.thumbUrl,
             localPreviewUrl: item.localPreviewUrl || item.imageUrl,
             imageAssetId: undefined,
             updatedAt: new Date().toISOString()
@@ -285,7 +322,8 @@ export async function uploadPendingAssets(
       photo.imageAssetId && uploadedPaths.has(photo.imageAssetId)
         ? {
             ...photo,
-            imageUrl: uploadedPaths.get(photo.imageAssetId) as string,
+            imageUrl: uploadedPaths.get(photo.imageAssetId)?.fullUrl as string,
+            imageThumbUrl: uploadedPaths.get(photo.imageAssetId)?.thumbUrl,
             localPreviewUrl: photo.localPreviewUrl || photo.imageUrl,
             imageAssetId: undefined,
             updatedAt: new Date().toISOString()
@@ -306,7 +344,7 @@ export async function pushSnapshotToSupabase(config: CloudSyncConfig, snapshot: 
     updated_at: new Date().toISOString()
   };
 
-  const response = await fetch(buildSupabaseUrl(config, `/rest/v1/${table}?on_conflict=dataset_id`), {
+  const response = await fetchWithRetry(buildSupabaseUrl(config, `/rest/v1/${table}?on_conflict=dataset_id`), {
     method: "POST",
     headers: {
       ...supabaseHeaders(config, "application/json", accessToken),
@@ -325,7 +363,7 @@ export async function pushSnapshotToSupabase(config: CloudSyncConfig, snapshot: 
 export async function pullSnapshotFromSupabase(config: CloudSyncConfig, accessToken?: string) {
   ensureSupabaseConfig(config);
   const table = config.supabaseTable || "collection_snapshots";
-  const response = await fetch(
+  const response = await fetchWithRetry(
     buildSupabaseUrl(
       config,
       `/rest/v1/${table}?dataset_id=eq.${encodeURIComponent(config.datasetId)}&select=payload,updated_at&limit=1`

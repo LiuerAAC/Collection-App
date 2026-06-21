@@ -83,7 +83,10 @@ type CollectionState = {
 const CollectionContext = createContext<CollectionState | undefined>(undefined);
 
 const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-const minutesToMilliseconds = (minutes: number) => Math.max(1, minutes || 10) * 60 * 1000;
+const LOCAL_PREVIEW_MAX_WIDTH = 420;
+const LOCAL_PREVIEW_QUALITY = 0.72;
+const CLOUD_IMAGE_MAX_WIDTH = 1080;
+const CLOUD_IMAGE_QUALITY = 0.78;
 
 function fileToDataUrl(file: Blob) {
   return new Promise<string>((resolve, reject) => {
@@ -158,6 +161,63 @@ const normalizeChecklistStatus = (checklist: ChecklistList): ChecklistList => {
   };
 };
 
+function cloudSyncErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "Cloud sync failed.";
+  const normalized = message.toLowerCase();
+  if (["failed to fetch", "load failed", "network", "timed out", "timeout"].some((pattern) => normalized.includes(pattern))) {
+    return "Cloud request failed on this device. Check network/VPN, then try Push or Pull again.";
+  }
+  return message;
+}
+
+const IMAGE_CACHE_NAME = "collection-app-images-v0-1";
+const RECENT_IMAGE_PREFETCH_LIMIT = 80;
+
+function collectRecentImageUrls(snapshot: AppStateSnapshot) {
+  const itemUrls = snapshot.items
+    .filter((item) => item.imageUrl || item.imageThumbUrl)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .flatMap((item) => [item.imageThumbUrl, item.imageUrl].filter(Boolean) as string[]);
+  const photoUrls = snapshot.photoShots
+    .filter((photo) => photo.imageUrl || photo.imageThumbUrl)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .flatMap((photo) => [photo.imageThumbUrl, photo.imageUrl].filter(Boolean) as string[]);
+  return Array.from(new Set([...photoUrls, ...itemUrls])).slice(0, RECENT_IMAGE_PREFETCH_LIMIT);
+}
+
+async function prefetchImageUrls(urls: string[], onProgress?: (completed: number, total: number) => void) {
+  if (!("caches" in window) || urls.length === 0) {
+    return;
+  }
+
+  const cache = await window.caches.open(IMAGE_CACHE_NAME);
+  let completed = 0;
+  const workerCount = Math.min(4, urls.length);
+  let cursor = 0;
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (cursor < urls.length) {
+      const index = cursor;
+      cursor += 1;
+      const url = urls[index];
+      try {
+        const request = new Request(url, { mode: "no-cors" });
+        const cached = await cache.match(request);
+        if (!cached) {
+          const response = await fetch(request);
+          await cache.put(request, response);
+        }
+      } catch {
+        // Image prefetch is an optimization; rendering can still load directly.
+      } finally {
+        completed += 1;
+        onProgress?.(completed, urls.length);
+      }
+    }
+  });
+
+  await Promise.all(workers);
+}
+
 export function CollectionProvider({ children }: PropsWithChildren) {
   const { session, user } = useAuth();
   const seedSnapshot = createSeedSnapshot();
@@ -187,6 +247,7 @@ export function CollectionProvider({ children }: PropsWithChildren) {
   const snapshotChangeGuard = useRef(true);
   const cloudBootstrapKey = useRef<string | null>(null);
   const syncQueueLength = useRef(0);
+  const prefetchKey = useRef("");
   const createManagedSyncConfig = () => {
     const next = createDefaultSyncConfig();
     if (supabaseRuntimeConfig.url && supabaseRuntimeConfig.anonKey) {
@@ -379,7 +440,7 @@ export function CollectionProvider({ children }: PropsWithChildren) {
         ...current,
         syncInFlight: false,
         syncAction: undefined,
-        lastError: error instanceof Error ? error.message : "Cloud pull failed."
+        lastError: cloudSyncErrorMessage(error)
       }));
     });
 
@@ -400,7 +461,14 @@ export function CollectionProvider({ children }: PropsWithChildren) {
 
     setStorageStatus((current) => ({ ...current, syncInFlight: true, syncAction: "push", lastError: undefined }));
     try {
-      const withUploadedAssets = await uploadPendingAssets(syncConfig, snapshot, storageScopeKey, session.accessToken);
+      const withUploadedAssets = await uploadPendingAssets(syncConfig, snapshot, storageScopeKey, session.accessToken, (completed, total) => {
+        setStorageStatus((current) => ({
+          ...current,
+          photoSyncPhase: "uploading",
+          photoSyncCompleted: completed,
+          photoSyncTotal: total
+        }));
+      });
       const preparedSnapshot = await prepareSnapshotForCloud(syncConfig, withUploadedAssets, session.accessToken);
       const syncedAt = await pushSnapshotToSupabase(syncConfig, preparedSnapshot, session.accessToken);
       snapshotChangeGuard.current = true;
@@ -413,10 +481,13 @@ export function CollectionProvider({ children }: PropsWithChildren) {
         lastSyncAction: "push",
         lastSyncedAt: syncedAt,
         cloudSyncChecked: true,
+        photoSyncPhase: undefined,
+        photoSyncCompleted: undefined,
+        photoSyncTotal: undefined,
         lastError: undefined
       }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Cloud sync failed.";
+      const message = cloudSyncErrorMessage(error);
       setSyncQueue((current) =>
         current.map((entry) =>
           entry.type === "push"
@@ -432,6 +503,7 @@ export function CollectionProvider({ children }: PropsWithChildren) {
         ...current,
         syncInFlight: false,
         syncAction: undefined,
+        photoSyncPhase: undefined,
         lastError: message
       }));
     }
@@ -477,22 +549,19 @@ export function CollectionProvider({ children }: PropsWithChildren) {
         ...current,
         syncInFlight: false,
         syncAction: undefined,
-        lastError: error instanceof Error ? error.message : "Cloud pull failed."
+        lastError: cloudSyncErrorMessage(error)
       }));
     }
   };
 
   useEffect(() => {
-    if (!storageStatus.ready || !storageStatus.online || !syncConfig.autoSync || syncConfig.provider !== "supabase" || syncQueue.length === 0 || storageStatus.syncInFlight) {
-      return;
-    }
-    if (!session?.accessToken) {
+    if (!storageStatus.ready || !storageStatus.online || syncConfig.provider !== "supabase" || syncQueue.length === 0 || storageStatus.syncInFlight || !session?.accessToken) {
       return;
     }
 
     const timer = window.setTimeout(() => {
       void pushToCloud();
-    }, minutesToMilliseconds(syncConfig.autoSyncIntervalMinutes));
+    }, 2500);
 
     return () => window.clearTimeout(timer);
   }, [
@@ -500,18 +569,62 @@ export function CollectionProvider({ children }: PropsWithChildren) {
     storageStatus.ready,
     storageStatus.online,
     storageStatus.syncInFlight,
-    syncConfig,
+    syncConfig.provider,
     session?.accessToken,
     syncQueue.length
   ]);
 
+  useEffect(() => {
+    if (!storageStatus.ready || !storageStatus.online) {
+      return;
+    }
+
+    const urls = collectRecentImageUrls(snapshot);
+    const nextKey = urls.join("|");
+    if (!nextKey || prefetchKey.current === nextKey) {
+      return;
+    }
+
+    let cancelled = false;
+    prefetchKey.current = nextKey;
+    setStorageStatus((current) => ({
+      ...current,
+      photoSyncPhase: "prefetching",
+      photoSyncCompleted: 0,
+      photoSyncTotal: urls.length
+    }));
+
+    prefetchImageUrls(urls, (completed, total) => {
+      if (cancelled) return;
+      setStorageStatus((current) => ({
+        ...current,
+        photoSyncPhase: "prefetching",
+        photoSyncCompleted: completed,
+        photoSyncTotal: total
+      }));
+    }).finally(() => {
+      if (cancelled) return;
+      setStorageStatus((current) => ({
+        ...current,
+        photoSyncPhase: undefined,
+        photoSyncCompleted: undefined,
+        photoSyncTotal: undefined
+      }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [snapshot, storageStatus.ready, storageStatus.online]);
+
   const stageLocalImage = async (target: "item" | "photo", file: File) => {
     let previewUrl = "";
     let uploadBlob: Blob = file;
+    let thumbBlob: Blob | undefined;
     try {
-      const previewBlob = await makeImageBlob(file, 480, 0.82);
-      previewUrl = await fileToDataUrl(previewBlob);
-      uploadBlob = await makeImageBlob(file, 1280, 0.84);
+      thumbBlob = await makeImageBlob(file, LOCAL_PREVIEW_MAX_WIDTH, LOCAL_PREVIEW_QUALITY);
+      previewUrl = await fileToDataUrl(thumbBlob);
+      uploadBlob = await makeImageBlob(file, CLOUD_IMAGE_MAX_WIDTH, CLOUD_IMAGE_QUALITY);
     } catch {
       previewUrl = await fileToDataUrl(file);
     }
@@ -523,6 +636,7 @@ export function CollectionProvider({ children }: PropsWithChildren) {
       mimeType: uploadBlob.type || file.type || "image/jpeg",
       fileName: uploadBlob === file ? file.name || `${assetId}.jpg` : `${assetId}.jpg`,
       blob: uploadBlob,
+      thumbBlob,
       createdAt: new Date().toISOString()
     };
     await savePendingAsset(pendingAsset);

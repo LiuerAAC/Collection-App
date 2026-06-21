@@ -42,6 +42,7 @@ export type DigitalAsset = {
 export type PhotoShot = {
   id: string;
   imageUrl: string;
+  imageThumbUrl?: string;
   localPreviewUrl?: string;
   imageAssetId?: string;
   itemIds: string[];
@@ -74,6 +75,7 @@ export type CollectionItem = {
   status: ItemStatus;
   description?: string;
   imageUrl?: string;
+  imageThumbUrl?: string;
   localPreviewUrl?: string;
   imageAssetId?: string;
   tagIds: string[];
@@ -179,6 +181,7 @@ export type PendingAssetRecord = {
   mimeType: string;
   fileName: string;
   blob: Blob;
+  thumbBlob?: Blob;
   createdAt: string;
 };
 
@@ -202,6 +205,9 @@ export type StorageStatus = {
   lastSyncAction?: "push" | "pull";
   lastSyncedAt?: string;
   cloudSyncChecked?: boolean;
+  photoSyncPhase?: "uploading" | "prefetching";
+  photoSyncCompleted?: number;
+  photoSyncTotal?: number;
   lastError?: string;
 };
 
@@ -223,6 +229,7 @@ export type AppStateSnapshot = {
 
 export type DraftItem = Pick<CollectionItem, "name" | "categoryId" | "status" | "description" | "imageUrl" | "localPreviewUrl" | "storageLocation"> & {
   imageAssetId?: string;
+  imageThumbUrl?: string;
   tagIds: string[];
   customValues: CollectionItem["customValues"];
   price?: number;

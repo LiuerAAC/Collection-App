@@ -6,7 +6,7 @@ import { AnalyticsScreen } from "./screens/AnalyticsScreen";
 import { GalleryScreen } from "./screens/GalleryScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { WarehouseScreen } from "./screens/WarehouseScreen";
-import { CollectionProvider } from "./store/collectionStore";
+import { CollectionProvider, useCollection } from "./store/collectionStore";
 import { AppTab } from "./types";
 
 export function App() {
@@ -127,23 +127,52 @@ function AuthScreen() {
 
 function AuthMenu() {
   const { busy, user, signOut } = useAuth();
+  const { storageStatus, pushToCloud, pullFromCloud } = useCollection();
   const [open, setOpen] = useState(false);
 
   if (!user) {
     return null;
   }
 
+  const progressTotal = storageStatus.photoSyncTotal ?? 0;
+  const progressCompleted = storageStatus.photoSyncCompleted ?? 0;
+  const progressPercent = progressTotal > 0 ? Math.round((progressCompleted / progressTotal) * 100) : 0;
+  const progressLabel = storageStatus.photoSyncPhase === "uploading"
+    ? `Uploading photos ${progressCompleted}/${progressTotal}`
+    : storageStatus.photoSyncPhase === "prefetching"
+      ? `Caching photos ${progressCompleted}/${progressTotal}`
+      : storageStatus.syncInFlight
+        ? storageStatus.syncAction === "pull" ? "Pulling cloud data" : "Pushing cloud data"
+        : storageStatus.pendingSyncCount > 0
+          ? `${storageStatus.pendingSyncCount} local change waiting`
+          : "Cloud is up to date";
+
   return (
     <div className="auth-slot">
-      <button className="auth-chip" onClick={() => setOpen((current) => !current)} type="button">
+      <button className={`sync-icon-button ${storageStatus.syncInFlight || storageStatus.photoSyncPhase ? "active" : ""}`.trim()} onClick={() => setOpen((current) => !current)} title="Cloud sync" type="button">
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d="M7.5 18.5h9.2a4.3 4.3 0 0 0 .4-8.6 6.2 6.2 0 0 0-11.8 1.9A3.4 3.4 0 0 0 7.5 18.5Z" />
+        </svg>
+      </button>
+      <button className="auth-chip avatar-only" onClick={() => setOpen((current) => !current)} title={user.email || "Signed in"} type="button">
         <span className="auth-avatar">{(user.email || "U").slice(0, 1).toUpperCase()}</span>
-        <span>{user.email || "Signed in"}</span>
       </button>
       {open ? (
         <div className="auth-popover">
           <div className="auth-popover-copy">
             <strong>{user.email}</strong>
-            <span className="muted">Your library syncs under this account.</span>
+            <span className="muted">{progressLabel}</span>
+          </div>
+          {progressTotal > 0 ? (
+            <div className="sync-progress">
+              <div className="sync-progress-bar" style={{ width: `${progressPercent}%` }} />
+            </div>
+          ) : null}
+          {storageStatus.lastSyncedAt ? <span className="muted">Last cloud sync: {new Date(storageStatus.lastSyncedAt).toLocaleString()}</span> : null}
+          {storageStatus.lastError ? <div className="sync-error compact">{storageStatus.lastError}</div> : null}
+          <div className="auth-popover-actions">
+            <Button className="compact-button auth-action" label="Push" onClick={() => void pushToCloud()} tone="quiet" />
+            <Button className="compact-button auth-action" label="Pull" onClick={() => void pullFromCloud()} tone="quiet" />
           </div>
           <Button className="compact-button auth-action" label={busy ? "Signing out..." : "Sign out"} onClick={() => void signOut()} tone="quiet" />
         </div>

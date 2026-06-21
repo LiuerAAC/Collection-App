@@ -5,7 +5,7 @@ import { ChecklistEntry, ChecklistList, ChecklistStatus, CollectionItem, CustomF
 
 type WarehouseView = "library" | "create" | "orders" | "photo" | "checklist";
 type OrderSort = "latest" | "highest";
-type DraftPhoto = Pick<PhotoShot, "title" | "imageUrl" | "localPreviewUrl" | "itemIds" | "imageAssetId">;
+type DraftPhoto = Pick<PhotoShot, "title" | "imageUrl" | "imageThumbUrl" | "localPreviewUrl" | "itemIds" | "imageAssetId">;
 type ChecklistFilter = ChecklistStatus;
 
 const ITEM_PAGE_SIZE = 60;
@@ -67,14 +67,9 @@ const emptyPhotoDraft: DraftPhoto = {
   itemIds: []
 };
 
-function displayImageUrl(entry: { imageUrl?: string; localPreviewUrl?: string }) {
-  return String(entry.localPreviewUrl || entry.imageUrl || "");
+function displayImageUrl(entry: { imageUrl?: string; imageThumbUrl?: string; localPreviewUrl?: string }) {
+  return String(entry.localPreviewUrl || entry.imageThumbUrl || entry.imageUrl || "");
 }
-
-const imageLoadProps = {
-  decoding: "async" as const,
-  loading: "lazy" as const
-};
 
 const emptyChecklistDraft = {
   seriesName: "",
@@ -233,6 +228,7 @@ export function WarehouseScreen() {
   const [editDraft, setEditDraft] = useState<Partial<CollectionItem>>({});
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [showOrderBind, setShowOrderBind] = useState(false);
+  const [orderBindQuery, setOrderBindQuery] = useState("");
   const [orderDraft, setOrderDraft] = useState<DraftPurchase>(emptyOrderDraft);
   const [orderSort, setOrderSort] = useState<OrderSort>("latest");
   const [showOrderSearch, setShowOrderSearch] = useState(false);
@@ -303,6 +299,12 @@ export function WarehouseScreen() {
   const selectedOrder = purchases.find((purchase) => purchase.id === selectedOrderId) ?? null;
   const selectedOrderItems = items.filter((item) => item.purchaseId === selectedOrder?.id);
   const bindableItems = items.filter((item) => item.purchaseId !== selectedOrder?.id);
+  const orderBindQueryText = orderBindQuery.trim().toLowerCase();
+  const orderBindResults = orderBindQueryText
+    ? bindableItems
+        .filter((item) => item.name.toLowerCase().includes(orderBindQueryText))
+        .slice(0, 20)
+    : [];
   const selectedPhoto = photoShots.find((photo) => photo.id === selectedPhotoId) ?? null;
   const linkedPhotoItems = items.filter((item) => selectedPhoto?.itemIds.includes(item.id));
   const selectedLinkedItem = linkedPhotoItems.find((item) => item.id === selectedLinkedItemId) ?? linkedPhotoItems[0] ?? null;
@@ -371,6 +373,7 @@ export function WarehouseScreen() {
     setPhotoDraft({
       title: selectedPhoto.title ?? "",
       imageUrl: selectedPhoto.imageUrl,
+      imageThumbUrl: selectedPhoto.imageThumbUrl,
       localPreviewUrl: selectedPhoto.localPreviewUrl ?? "",
       imageAssetId: selectedPhoto.imageAssetId,
       itemIds: selectedPhoto.itemIds
@@ -404,6 +407,7 @@ export function WarehouseScreen() {
   const closeOrderModal = () => {
     setSelectedOrderId(null);
     setShowOrderBind(false);
+    setOrderBindQuery("");
     setOrderDraft(emptyOrderDraft);
   };
 
@@ -455,7 +459,7 @@ export function WarehouseScreen() {
     const file = event.target.files?.[0];
     if (!file) return;
     const staged = await stageLocalImage("item", file);
-    setDraft((current) => ({ ...current, imageUrl: staged.previewUrl, localPreviewUrl: staged.previewUrl, imageAssetId: staged.assetId }));
+    setDraft((current) => ({ ...current, imageUrl: staged.previewUrl, imageThumbUrl: staged.previewUrl, localPreviewUrl: staged.previewUrl, imageAssetId: staged.assetId }));
     event.target.value = "";
   };
 
@@ -463,7 +467,7 @@ export function WarehouseScreen() {
     const file = event.target.files?.[0];
     if (!file || !selectedItemId) return;
     const staged = await stageLocalImage("item", file);
-    setEditDraft((current) => ({ ...current, imageUrl: staged.previewUrl, localPreviewUrl: staged.previewUrl, imageAssetId: staged.assetId }));
+    setEditDraft((current) => ({ ...current, imageUrl: staged.previewUrl, imageThumbUrl: staged.previewUrl, localPreviewUrl: staged.previewUrl, imageAssetId: staged.assetId }));
     event.target.value = "";
   };
 
@@ -471,7 +475,7 @@ export function WarehouseScreen() {
     const file = event.target.files?.[0];
     if (!file) return;
     const staged = await stageLocalImage("photo", file);
-    setPhotoDraft((current) => ({ ...current, imageUrl: staged.previewUrl, localPreviewUrl: staged.previewUrl, imageAssetId: staged.assetId }));
+    setPhotoDraft((current) => ({ ...current, imageUrl: staged.previewUrl, imageThumbUrl: staged.previewUrl, localPreviewUrl: staged.previewUrl, imageAssetId: staged.assetId }));
     event.target.value = "";
   };
 
@@ -479,7 +483,7 @@ export function WarehouseScreen() {
     const file = event.target.files?.[0];
     if (!file) return;
     const staged = await stageLocalImage("photo", file);
-    setPhotoDraft((current) => ({ ...current, imageUrl: staged.previewUrl, localPreviewUrl: staged.previewUrl, imageAssetId: staged.assetId }));
+    setPhotoDraft((current) => ({ ...current, imageUrl: staged.previewUrl, imageThumbUrl: staged.previewUrl, localPreviewUrl: staged.previewUrl, imageAssetId: staged.assetId }));
     event.target.value = "";
   };
 
@@ -588,6 +592,7 @@ export function WarehouseScreen() {
       notes: purchase.notes ?? ""
     });
     setShowOrderBind(false);
+    setOrderBindQuery("");
   };
 
   const submitOrder = (event: FormEvent) => {
@@ -611,6 +616,7 @@ export function WarehouseScreen() {
     if (!photoDraft.imageUrl.trim()) return;
     const nextId = addPhotoShot({
       imageUrl: photoDraft.imageUrl,
+      imageThumbUrl: photoDraft.imageThumbUrl,
       localPreviewUrl: photoDraft.localPreviewUrl,
       imageAssetId: photoDraft.imageAssetId,
       title: (photoDraft.title ?? "").trim() || `Photo ${photoShots.length + 1}`,
@@ -776,7 +782,7 @@ export function WarehouseScreen() {
             <div className="image-grid compact-grid">
               {pagedItems.map((item) => (
                 <button className="image-tile small" key={item.id} onClick={() => setSelectedItemId(item.id)} type="button">
-                  {displayImageUrl(item) ? <img {...imageLoadProps} alt={item.name} src={displayImageUrl(item)} /> : <div className="image-tile-placeholder">No image</div>}
+                  {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <div className="image-tile-placeholder">No image</div>}
                 </button>
               ))}
             </div>
@@ -803,7 +809,7 @@ export function WarehouseScreen() {
                   <div className="detail-hero-layout">
                     <button className="detail-image compact-photo clickable-image detail-photo-large" onClick={() => editImageInputRef.current?.click()} type="button">
                       {String(editDraft.imageUrl ?? selectedItem.imageUrl ?? "").trim() ? (
-                        <img {...imageLoadProps} alt={selectedItem.name} src={displayImageUrl({ imageUrl: String(editDraft.imageUrl ?? selectedItem.imageUrl ?? ""), localPreviewUrl: String(editDraft.localPreviewUrl ?? selectedItem.localPreviewUrl ?? "") })} />
+                        <img alt={selectedItem.name} src={displayImageUrl({ imageUrl: String(editDraft.imageUrl ?? selectedItem.imageUrl ?? ""), localPreviewUrl: String(editDraft.localPreviewUrl ?? selectedItem.localPreviewUrl ?? "") })} />
                       ) : (
                         <div className="image-tile-placeholder">No image</div>
                       )}
@@ -982,7 +988,7 @@ export function WarehouseScreen() {
 
                 <div className="integrated-form">
                   <button className="detail-image uploader-tile compact-photo clickable-image" onClick={() => addImageInputRef.current?.click()} type="button">
-                    {displayImageUrl(draft) ? <img {...imageLoadProps} alt="Item preview" src={displayImageUrl(draft)} /> : <div className="image-tile-placeholder">Add image</div>}
+                    {displayImageUrl(draft) ? <img alt="Item preview" src={displayImageUrl(draft)} /> : <div className="image-tile-placeholder">Add image</div>}
                     <input accept="image/*" capture="environment" hidden onChange={onAddImage} ref={addImageInputRef} type="file" />
                   </button>
 
@@ -1150,19 +1156,39 @@ export function WarehouseScreen() {
                       </div>
 
                       {showOrderBind ? (
-                        <div className="compact-list">
-                          {bindableItems.length > 0 ? (
-                            bindableItems.map((item) => (
-                              <button className="list-row" key={item.id} onClick={() => selectedOrder && linkPurchaseToItem(selectedOrder.id, item.id)} type="button">
-                                <span>{item.name}</span>
-                                <span className="muted">{item.purchaseId ? "Re-link" : "Bind"}</span>
-                              </button>
-                            ))
-                          ) : (
-                            <div className="list-row static">
-                              <span className="muted">Every item is already linked</span>
-                            </div>
-                          )}
+                        <div className="order-link-search">
+                          <Field label="Search card name" value={orderBindQuery} onChange={setOrderBindQuery} placeholder="Item 123" />
+                          <div className="compact-list">
+                            {!orderBindQueryText ? (
+                              <div className="list-row static">
+                                <span className="muted">Type a card name or number to find matching items.</span>
+                              </div>
+                            ) : orderBindResults.length > 0 ? (
+                              orderBindResults.map((item) => (
+                                <button
+                                  className="list-row"
+                                  key={item.id}
+                                  onClick={() => {
+                                    if (!selectedOrder) return;
+                                    linkPurchaseToItem(selectedOrder.id, item.id);
+                                    setOrderBindQuery("");
+                                  }}
+                                  type="button"
+                                >
+                                  <span>{item.name}</span>
+                                  <span className="muted">{item.purchaseId ? "Re-link" : "Bind"}</span>
+                                </button>
+                              ))
+                            ) : bindableItems.length > 0 ? (
+                              <div className="list-row static">
+                                <span className="muted">No matching cards found.</span>
+                              </div>
+                            ) : (
+                              <div className="list-row static">
+                                <span className="muted">Every item is already linked</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       ) : null}
                     </div>
@@ -1248,7 +1274,7 @@ export function WarehouseScreen() {
                                 <div className="linked-mini-row">
                                   {linkedItems.map((item) => (
                                     <div className="linked-mini-card" key={item.id}>
-                                      {displayImageUrl(item) ? <img {...imageLoadProps} alt={item.name} src={displayImageUrl(item)} /> : <span>{item.name.slice(0, 1)}</span>}
+                                      {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <span>{item.name.slice(0, 1)}</span>}
                                     </div>
                                   ))}
                                 </div>
@@ -1397,7 +1423,7 @@ export function WarehouseScreen() {
                         >
                           <div className="picker-card-shell">
                             <div className="picker-thumb">
-                              {displayImageUrl(item) ? <img {...imageLoadProps} alt={item.name} src={displayImageUrl(item)} /> : <div className="image-tile-placeholder">No image</div>}
+                              {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <div className="image-tile-placeholder">No image</div>}
                             </div>
                           </div>
                           <strong>{item.name}</strong>
@@ -1434,7 +1460,7 @@ export function WarehouseScreen() {
             <div className="image-grid photo-grid">
               {pagedPhotos.map((photo) => (
                 <button className="image-tile photo-tile" key={photo.id} onClick={() => openPhotoDetail(photo.id)} type="button">
-                  <img {...imageLoadProps} alt={photo.title ?? "Photo"} src={displayImageUrl(photo)} />
+                  <img alt={photo.title ?? "Photo"} src={displayImageUrl(photo)} />
                 </button>
               ))}
             </div>
@@ -1460,7 +1486,7 @@ export function WarehouseScreen() {
                 <form onSubmit={submitPhoto}>
                   <div className="detail-hero-layout photo-detail-layout">
                     <button className="detail-image compact-photo clickable-image detail-photo-large" onClick={() => addPhotoInputRef.current?.click()} type="button">
-                      {displayImageUrl(photoDraft) ? <img {...imageLoadProps} alt="Photo preview" src={displayImageUrl(photoDraft)} /> : <div className="image-tile-placeholder">Add photo</div>}
+                      {displayImageUrl(photoDraft) ? <img alt="Photo preview" src={displayImageUrl(photoDraft)} /> : <div className="image-tile-placeholder">Add photo</div>}
                     </button>
                     <div className="detail-tags-panel">
                       <Field label="Title" value={photoDraft.title ?? ""} onChange={(value) => setPhotoDraft((current) => ({ ...current, title: value }))} placeholder="Match day shot" />
@@ -1518,7 +1544,7 @@ export function WarehouseScreen() {
                 <form onSubmit={submitPhotoUpdate}>
                   <div className="detail-hero-layout photo-detail-layout">
                     <button className="detail-image compact-photo clickable-image detail-photo-large" onClick={() => editPhotoInputRef.current?.click()} type="button">
-                      <img {...imageLoadProps} alt={selectedPhoto.title ?? "Photo"} src={displayImageUrl({ imageUrl: photoDraft.imageUrl || selectedPhoto.imageUrl, localPreviewUrl: photoDraft.localPreviewUrl || selectedPhoto.localPreviewUrl })} />
+                      <img alt={selectedPhoto.title ?? "Photo"} src={displayImageUrl({ imageUrl: photoDraft.imageUrl || selectedPhoto.imageUrl, localPreviewUrl: photoDraft.localPreviewUrl || selectedPhoto.localPreviewUrl })} />
                     </button>
                     <div className="detail-tags-panel">
                       <div className="field">
@@ -1532,7 +1558,7 @@ export function WarehouseScreen() {
                               type="button"
                             >
                               <span className="linked-thumb-order">{index + 1}</span>
-                              {displayImageUrl(item) ? <img {...imageLoadProps} alt={item.name} src={displayImageUrl(item)} /> : <span className="linked-thumb-fallback">{item.name.slice(0, 1)}</span>}
+                              {displayImageUrl(item) ? <img alt={item.name} src={displayImageUrl(item)} /> : <span className="linked-thumb-fallback">{item.name.slice(0, 1)}</span>}
                             </button>
                           ))}
                           <button className="tag-plus-button" onClick={() => setShowPhotoLinkPicker((value) => !value)} title="Link cards" type="button">
@@ -1579,7 +1605,7 @@ export function WarehouseScreen() {
                         <div className="linked-item-card">
                           <div className="row">
                             <div className="thumb">
-                              {displayImageUrl(selectedLinkedItem) ? <img {...imageLoadProps} alt={selectedLinkedItem.name} src={displayImageUrl(selectedLinkedItem)} /> : <div className="image-tile-placeholder">No image</div>}
+                              {displayImageUrl(selectedLinkedItem) ? <img alt={selectedLinkedItem.name} src={displayImageUrl(selectedLinkedItem)} /> : <div className="image-tile-placeholder">No image</div>}
                             </div>
                             <div className="stack">
                               <strong>{selectedLinkedItem.name}</strong>

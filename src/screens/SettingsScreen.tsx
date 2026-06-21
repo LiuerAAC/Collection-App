@@ -11,7 +11,6 @@ export function SettingsScreen() {
     fields,
     tags,
     storageStatus,
-    syncConfig,
     addCategory,
     updateCategory,
     deleteCategory,
@@ -23,7 +22,6 @@ export function SettingsScreen() {
     updateTag,
     deleteTag,
     mergeTags,
-    updateSyncConfig,
     exportBackup,
     pushToCloud,
     pullFromCloud
@@ -104,11 +102,6 @@ export function SettingsScreen() {
 
   const toggleSection = (section: "storage" | "categories" | "fields" | "tags") => {
     setOpenSection((current) => (current === section ? null : section));
-  };
-
-  const updateAutoSyncInterval = (value: string) => {
-    const interval = Number(value);
-    updateSyncConfig({ autoSyncIntervalMinutes: Number.isFinite(interval) ? Math.max(1, interval) : 10 });
   };
 
   const lastBackupLabel = storageStatus.lastSyncedAt
@@ -310,21 +303,10 @@ export function SettingsScreen() {
                       {lastBackupLabel}
                     </div>
                   </div>
-                  <Field
-                    label="Auto backup interval (minutes)"
-                    onChange={updateAutoSyncInterval}
-                    placeholder="10"
-                    type="number"
-                    value={String(syncConfig.autoSyncIntervalMinutes ?? 10)}
-                  />
-                  <label className="checkbox-field">
-                    <input checked={syncConfig.autoSync} onChange={(event) => updateSyncConfig({ autoSync: event.target.checked })} type="checkbox" />
-                    <span>Auto backup when this page is open and online</span>
-                  </label>
                 </div>
 
                 <div className="settings-note">
-                  Auto backup currently means: while this webpage is open, if you are online and there are unsynced local changes, the app will automatically push them to Supabase at the interval above.
+                  When this webpage is open and online, local changes are saved immediately on this device and pushed to Supabase after a short delay. Recent cloud images are cached in the background.
                 </div>
 
                 {storageStatus.lastError ? <div className="sync-error">{storageStatus.lastError}</div> : null}

@@ -129,6 +129,132 @@ Why the folder rule matches the frontend:
 - `datasetId` is forced to `user.id`
 - for example: `user-uuid/items/asset-123.jpg`
 
+## 4.1 Optional incremental sync tables
+
+The current frontend still keeps `collection_snapshots` as the compatibility checkpoint. To move toward faster multi-device sync, add an operation log table first. New clients can write small entity changes here while older clients keep using the snapshot row.
+
+```sql
+create table if not exists public.collection_operations (
+  id uuid primary key default gen_random_uuid(),
+  dataset_id text not null,
+  entity_type text not null check (entity_type in ('item', 'photo', 'album', 'album_slot', 'checklist', 'purchase', 'sale_record', 'category', 'field', 'tag')),
+  entity_id text not null,
+  operation text not null check (operation in ('upsert', 'delete')),
+  payload jsonb,
+  client_id text,
+  created_at timestamptz not null default timezone('utc', now())
+);
+
+create index if not exists collection_operations_dataset_created_idx
+on public.collection_operations (dataset_id, created_at);
+
+alter table public.collection_operations enable row level security;
+
+drop policy if exists "operations_select_own_dataset" on public.collection_operations;
+create policy "operations_select_own_dataset"
+on public.collection_operations
+for select
+to authenticated
+using (dataset_id = auth.uid()::text);
+
+drop policy if exists "operations_insert_own_dataset" on public.collection_operations;
+create policy "operations_insert_own_dataset"
+on public.collection_operations
+for insert
+to authenticated
+with check (dataset_id = auth.uid()::text);
+```
+
+Recommended rollout:
+
+1. Keep writing `collection_snapshots` as a compact recovery checkpoint.
+2. Start writing one operation per changed entity into `collection_operations`.
+3. On device startup, load the latest local checkpoint, then replay operations newer than the local cursor.
+4. Periodically compact operations into `collection_snapshots` so a brand-new device does not need to replay an unbounded history.
+
+## 4.2 Future tables for Obsidian import and bead inventory
+
+These tables are not required by the current frontend yet. They document the intended v0.4 backend shape for importing the local Obsidian vault and managing MARD bead inventory.
+
+```sql
+create table if not exists public.obsidian_import_batches (
+  id uuid primary key default gen_random_uuid(),
+  dataset_id text not null,
+  vault_path text not null,
+  status text not null check (status in ('scanned', 'importing', 'completed', 'failed')),
+  scanned_count integer not null default 0,
+  created_count integer not null default 0,
+  updated_count integer not null default 0,
+  skipped_count integer not null default 0,
+  failed_count integer not null default 0,
+  conflict_count integer not null default 0,
+  error_summary text,
+  started_at timestamptz not null default timezone('utc', now()),
+  completed_at timestamptz
+);
+
+create table if not exists public.obsidian_source_refs (
+  id uuid primary key default gen_random_uuid(),
+  dataset_id text not null,
+  entity_type text not null check (entity_type in ('item', 'purchase', 'source', 'asset')),
+  entity_id text not null,
+  vault_path text not null,
+  file_name text,
+  file_mtime timestamptz,
+  content_hash text,
+  import_batch_id uuid references public.obsidian_import_batches(id),
+  last_imported_at timestamptz not null default timezone('utc', now()),
+  unique (dataset_id, vault_path)
+);
+
+create table if not exists public.bead_colors (
+  id uuid primary key default gen_random_uuid(),
+  dataset_id text not null,
+  brand text not null default 'MARD',
+  code text not null,
+  group_code text not null check (group_code in ('A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'M')),
+  name text,
+  hex text,
+  rgb integer[],
+  swatch_url text,
+  stock_count integer not null default 0,
+  total_added integer not null default 0,
+  total_used integer not null default 0,
+  updated_at timestamptz not null default timezone('utc', now()),
+  unique (dataset_id, brand, code)
+);
+
+create table if not exists public.bead_inventory_logs (
+  id uuid primary key default gen_random_uuid(),
+  dataset_id text not null,
+  bead_color_id uuid not null references public.bead_colors(id),
+  action text not null check (action in ('add', 'consume', 'adjust')),
+  quantity integer not null,
+  item_id text,
+  source_pattern_id text,
+  source text not null check (source in ('manual', 'pattern_recognition', 'import', 'correction')),
+  notes text,
+  created_at timestamptz not null default timezone('utc', now())
+);
+
+alter table public.obsidian_import_batches enable row level security;
+alter table public.obsidian_source_refs enable row level security;
+alter table public.bead_colors enable row level security;
+alter table public.bead_inventory_logs enable row level security;
+```
+
+Recommended RLS policy pattern:
+
+```sql
+create policy "own_dataset_select"
+on public.bead_colors
+for select
+to authenticated
+using (dataset_id = auth.uid()::text);
+```
+
+Apply the same `dataset_id = auth.uid()::text` rule to select, insert, and update policies for each future table when the frontend starts using them.
+
 ## 5. Frontend session flow
 
 The current frontend does this:
